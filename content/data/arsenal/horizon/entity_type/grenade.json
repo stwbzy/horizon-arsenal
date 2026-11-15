@@ -1,0 +1,5 @@
+{
+  "template": "minecraft:snowball",
+  "item": "arsenal:grenade",
+  "damage": 0.0
+}

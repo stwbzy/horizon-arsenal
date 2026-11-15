@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "  S",
+    "III",
+    "CW "
+  ],
+  "key": {
+    "S": "minecraft:spyglass",
+    "I": "minecraft:iron_ingot",
+    "C": "minecraft:copper_ingot",
+    "W": "#minecraft:planks"
+  },
+  "result": {
+    "id": "arsenal:sniper",
+    "count": 1
+  }
+}

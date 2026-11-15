@@ -1,0 +1,16 @@
+{
+  "item.arsenal.pistol": "Pistola",
+  "item.arsenal.rifle": "Fusil",
+  "item.arsenal.shotgun": "Escopeta",
+  "item.arsenal.sniper": "Rifle de francotirador",
+  "item.arsenal.knife": "Cuchillo de combate",
+  "item.arsenal.grenade": "Granada",
+  "item.arsenal.ammo_pistol": "Balas de pistola",
+  "item.arsenal.ammo_rifle": "Balas de fusil",
+  "item.arsenal.shell": "Cartuchos de escopeta",
+  "itemGroup.arsenal.arsenal": "Arsenal",
+  "entity.arsenal.grenade": "Granada",
+  "death.attack.arsenal.bullet": "%1$s fue abatido por %2$s",
+  "death.attack.arsenal.bullet.item": "%1$s fue abatido por %2$s con %3$s",
+  "death.attack.arsenal.bullet.player": "%1$s fue abatido a tiros mientras huía de %2$s"
+}

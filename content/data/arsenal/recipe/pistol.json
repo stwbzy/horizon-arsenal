@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "III",
+    " CW"
+  ],
+  "key": {
+    "I": "minecraft:iron_ingot",
+    "C": "minecraft:copper_ingot",
+    "W": "#minecraft:planks"
+  },
+  "result": {
+    "id": "arsenal:pistol",
+    "count": 1
+  }
+}

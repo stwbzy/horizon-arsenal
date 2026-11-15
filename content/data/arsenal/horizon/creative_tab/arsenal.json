@@ -1,0 +1,15 @@
+{
+  "title": "itemGroup.arsenal.arsenal",
+  "icon": "arsenal:pistol",
+  "items": [
+    "arsenal:pistol",
+    "arsenal:rifle",
+    "arsenal:shotgun",
+    "arsenal:sniper",
+    "arsenal:knife",
+    "arsenal:grenade",
+    "arsenal:ammo_pistol",
+    "arsenal:ammo_rifle",
+    "arsenal:shell"
+  ]
+}

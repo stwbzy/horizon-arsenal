@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "equipment",
+  "ingredients": [
+    "minecraft:paper",
+    "minecraft:iron_nugget",
+    "minecraft:gunpowder"
+  ],
+  "result": {
+    "id": "arsenal:shell",
+    "count": 4
+  }
+}

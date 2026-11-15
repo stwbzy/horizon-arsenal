@@ -1,0 +1,16 @@
+{
+  "item.arsenal.pistol": "Pistol",
+  "item.arsenal.rifle": "Rifle",
+  "item.arsenal.shotgun": "Shotgun",
+  "item.arsenal.sniper": "Sniper Rifle",
+  "item.arsenal.knife": "Combat Knife",
+  "item.arsenal.grenade": "Grenade",
+  "item.arsenal.ammo_pistol": "Pistol Ammo",
+  "item.arsenal.ammo_rifle": "Rifle Ammo",
+  "item.arsenal.shell": "Shotgun Shells",
+  "itemGroup.arsenal.arsenal": "Arsenal",
+  "entity.arsenal.grenade": "Grenade",
+  "death.attack.arsenal.bullet": "%1$s was shot by %2$s",
+  "death.attack.arsenal.bullet.item": "%1$s was shot by %2$s using %3$s",
+  "death.attack.arsenal.bullet.player": "%1$s was shot while fleeing %2$s"
+}
