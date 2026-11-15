@@ -265,25 +265,67 @@ def check_sync_with_rust() -> None:
 
 def write_gun(assets: Path, item: str) -> None:
     """Arma de fuego: modelo 3D en la mano; icono plano (sacado del modelo) en inventario,
-    suelo, marcos y estanterías."""
+    suelo, marcos y estanterías. En primera persona, dos propiedades del mod eligen variante
+    durante la recarga: `arsenal:mag_only` (dibujar sólo el cargador, en la mano de apoyo) y
+    `arsenal:mag_out` (el arma sin cargador)."""
     parts = gun_models.GUN_PARTS[item]
-    write_json(assets / "models" / "item" / f"{item}.json", gun_models.model_json(item, NS, parts))
+    model = lambda v: {"type": "minecraft:model", "model": f"{NS}:item/{item}{'' if v == 'full' else '_' + v}"}
+    for variant in gun_models.VARIANTS:
+        suffix = "" if variant == "full" else f"_{variant}"
+        write_json(assets / "models" / "item" / f"{item}{suffix}.json",
+                   gun_models.model_json(item, NS, parts, variant))
     write_json(assets / "models" / "item" / f"{item}_icon.json",
                {"parent": "minecraft:item/generated", "textures": {"layer0": f"{NS}:item/{item}"}})
     icon_path = assets / "textures" / "item" / f"{item}.png"
     icon_path.parent.mkdir(parents=True, exist_ok=True)
     gun_models.icon(parts).save(icon_path)
     flat = {"type": "minecraft:model", "model": f"{NS}:item/{item}_icon"}
+    first_person = {
+        "type": "minecraft:condition", "property": f"{NS}:mag_only",
+        "on_true": model("mag"),
+        "on_false": {"type": "minecraft:condition", "property": f"{NS}:mag_out",
+                     "on_true": model("nomag"), "on_false": model("full")},
+    }
     write_json(assets / "items" / f"{item}.json", {"model": {
         "type": "minecraft:select",
         "property": "minecraft:display_context",
-        "cases": [{"when": ["gui", "ground", "fixed", "on_shelf"], "model": flat}],
-        "fallback": {"type": "minecraft:model", "model": f"{NS}:item/{item}"},
+        "cases": [
+            {"when": ["gui", "ground", "fixed", "on_shelf"], "model": flat},
+            {"when": ["firstperson_righthand", "firstperson_lefthand"], "model": first_person},
+        ],
+        "fallback": model("full"),
     }})
+
+
+RIG_TEMPLATE = ROOT.parent / "tools" / "rig_template.rs"
+RIG_OUT = ROOT.parent / "arsenal" / "rig.rs"
+
+
+def write_rig() -> None:
+    """arsenal/rig.rs: el módulo que la mezcla inserta en el motor (horizon_client::arsenal_rig).
+    Es la plantilla tools/rig_template.rs más la tabla de agarres de cada arma, sacada de los
+    mismos modelos, para que las manos no se desalineen nunca del arma."""
+    f = lambda v: "[" + ", ".join(f"{float(c):.3f}" for c in v) + "]"
+    rows = []
+    for item in sorted(GUNS):
+        e = gun_models.rig_entry(item)
+        feed = "Feed::Magazine" if e["feed"] == "magazine" else "Feed::Shells"
+        rows.append(
+            f'    Gun {{ item: "{NS}:{item}", feed: {feed}, grip: {f(e["grip"])}, fore: {f(e["fore"])}, '
+            f'magwell: {f(e["magwell"])}, fp_rotation: {f(e["fp_rotation"])}, '
+            f'fp_translation: {f(e["fp_translation"])}, fp_scale: {e["fp_scale"]:.3f} }},')
+    table = "pub const GUNS: &[Gun] = &[\n" + "\n".join(rows) + "\n];\n"
+    src = RIG_TEMPLATE.read_text(encoding="utf-8")
+    marker = "// @GUNS@\n"
+    assert marker in src, "falta // @GUNS@ en rig_template.rs"
+    out = ("// GENERADO por tools/gen_content.py desde tools/rig_template.rs: no lo edites a mano.\n"
+           + src.replace(marker, table))
+    RIG_OUT.write_text(out, encoding="utf-8")
 
 
 def main() -> None:
     check_sync_with_rust()
+    write_rig()
     if ROOT.exists():
         shutil.rmtree(ROOT)
     ROOT.mkdir(parents=True)
@@ -291,7 +333,7 @@ def main() -> None:
     (ROOT / "horizon-mod.toml").write_text(
         f'id = "{NS}"\n'
         'name = "Arsenal"\n'
-        'version = "0.1.0"\n'
+        'version = "0.2.0"\n'
         'description = "Armas de fuego, granadas y cuchillo para Horizon."\n'
         'authors = ["stwby"]\n'
         'api = "0.2"\n'

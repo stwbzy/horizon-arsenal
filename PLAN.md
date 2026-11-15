@@ -131,3 +131,66 @@ como indica la doc ("Testing a trait mod").
 - Tiempos de compilación largos (recompila `horizon-client`); por eso la lógica pesada va en módulos testeables.
 - Los mods nativos no están en sandbox: sólo compilamos código propio.
 - Texturas/sonidos: necesitamos assets originales (los genero como placeholders o los haces tú).
+
+## 6. Fase 9 — Agarre FPS a dos manos, armas más grandes y recarga animada (v0.2.0) — HECHA
+
+Resultado (2026-11-15): hecho y probado en el juego con horizon-ctl (diestro y zurdo, 1ª y 3ª persona,
+recarga de cargador y de cartuchos, cancelación al cambiar de arma). Cambios respecto al plan: las
+inyecciones acabaron en `item_activation_geometry` (HEAD, recibe la geometría de la mano) y en
+`anim::setup` (RETURN), porque `hand_geometry` y `vanilla_setup` no admiten inyección (tienen `use`
+internos y macros); los giros de la recarga se compensan para pivotar sobre el arma; la mano izquierda
+necesita su propio giro en el JSON (180 - 68) porque el espejo del juego es un giro, no un reflejo.
+
+### Lo que el motor permite (análisis del código de Horizon fdc87ae)
+- **Primera persona**: `hand_geometry` (game.rs) sólo dibuja el brazo de la mano principal *vacía*; con un ítem
+  sólo se ve el ítem. El único caso con dos brazos es el mapa (`map_arm_poses` + `first_person_arm`, que usa la
+  skin del jugador). Ningún hook de la API deja dibujar brazos: `render_hand_pose` sólo mueve el ítem.
+- **Tercera persona**: la pose de brazos se elige en `mobs::anim::vanilla_setup` por *id de ítem fijo*
+  (`minecraft:bow` → `ArmPose::Bow`, ballesta cargada → `CrossbowHold`). `UseAnimation::Bow` no la cambia.
+  `player_submit` permitiría redibujar al jugador entero, pero sin acceso fiable a su skin, capa ni armadura: descartado.
+- **Solución: inyecciones de horizon-mixins por `target`** (además de los hooks que ya usamos). El mod ya está fijado
+  a `horizon_revision = fdc87ae`, así que los objetivos son estables mientras no cambiemos de commit.
+  1. `Game::hand_geometry`, `BEFORE_CALL` en `self.native_render_hand_pose(...)`: si la mano principal tiene un arma
+     `arsenal:*`, añadir dos brazos con `self.first_person_arm(...)` (skin propia, como el mapa a dos manos) con poses
+     calculadas por el mod. Respeta jugador invisible, mano principal izquierda (espejo) y F1.
+  2. `mobs::anim::vanilla_setup`, `BEFORE_CALL` en `humanoid(p, s, &h)`: si un jugador sostiene un arma, poner
+     `h.right/h.left` en pose de arco (`ArmPose::Bow`, dos brazos hacia la mira). Se compara en juego con
+     `CrossbowHold` (más "fusil al hombro") y se elige el que se vea mejor. Lo ven todos los clientes con el mod.
+  3. Mismo sitio, `AFTER_CALL` en `humanoid(...)`: durante una recarga, ajustar ángulos del brazo de apoyo.
+- **Plan B** si una inyección no compila o choca con otro mod: guantes/mangas modelados dentro del ítem sólo para
+  primera persona (`minecraft:select` por `display_context`, que Horizon soporta). Sin skin, pero sin tocar el motor.
+
+### Tamaño
+- `gun_models.py`: escala en primera persona ×~1,35 y en tercera ×~1,3 (inventario y suelo igual). Se reajustan
+  `translation` para que la empuñadura quede donde la mano derecha.
+- `gun_models.py` exporta por arma sus **puntos de agarre** (empuñadura, guardamanos, pozo del cargador) a un
+  `api/src/grips.rs` generado; las poses de los brazos salen de ahí, así modelo y manos no se desalinean.
+
+### Recarga animada (dura `reload_ticks` de cada arma, ya existente en el servidor)
+- Red: `arsenal:reload` del servidor al tirador (y a los jugadores cercanos) con arma y duración;
+  `arsenal:reload_cancel` si cambia de ítem. El cliente anima por tiempo, sin decidir nada.
+- Cronología en primera persona (por fracción de la recarga):
+  0–20 % el arma gira hacia dentro y baja · 20–45 % la mano izquierda saca el cargador hacia abajo (el modelo cambia
+  a "sin cargador") · 45–75 % vuelve, lo mete y da un golpe seco · 75–100 % el arma vuelve; fusil/francotirador con
+  tirón del cerrojo de la mano derecha. Escopeta: cartucho a cartucho (la mano va y viene). Pistola: más rápida.
+- Modelos: cada arma tiene variante sin cargador; la definición del ítem elige con `minecraft:condition` y la
+  propiedad propia `arsenal:mag_out` (hook `item_model_property`).
+- El cargador en la mano: se intenta dibujar un modelo de cargador en la mano izquierda desde la inyección 1; si no
+  es viable, la mano sale de cuadro y vuelve (se ve igual de natural).
+- Sonidos por etapa (sacar, meter, cerrojo) con sonidos vanilla de clic/metal.
+- Tercera persona: el brazo de apoyo baja al cargador y vuelve (inyección 3).
+
+### Pasos
+9.1 **Prototipo de riesgo**: las dos inyecciones compilando con un brazo extra fijo y la pose de arco. Si falla → plan B.
+9.2 Tamaño + exportar puntos de agarre.
+9.3 Dos brazos en primera persona (diestro y zurdo), retroceso aplicado a arma y brazos juntos.
+9.4 Pose de arco en tercera persona (F5 delante y detrás, otros jugadores).
+9.5 Recarga: red, cronología, modelos sin cargador, sonidos.
+9.6 Recarga en tercera persona.
+9.7 Pruebas: cada arma, invisibilidad, cambio de ítem a media recarga, build junto a tus 7 mods (warnings de
+    inyecciones compartidas en `build.log`); README y release v0.2.0.
+
+### Riesgos
+- Las inyecciones por `target` atan el mod a fdc87ae: actualizar Horizon exigirá revisarlas (hoy ya está fijado).
+- Las poses de brazos se ajustan a ojo con capturas; puede llevar varias iteraciones por arma.
+- Sin `ydotool` no puedo pulsar teclas en el juego: la recarga con R y F5 tendrás que probarlas tú.

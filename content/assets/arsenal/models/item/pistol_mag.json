@@ -1,0 +1,250 @@
+{
+  "textures": {
+    "mat": "arsenal:item/gun_materials",
+    "particle": "arsenal:item/pistol"
+  },
+  "gui_light": "front",
+  "elements": [
+    {
+      "from": [
+        3.55,
+        3.55,
+        7.225
+      ],
+      "to": [
+        5.75,
+        4.15,
+        8.725
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            2.05,
+            0.05,
+            3.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "south": {
+          "uv": [
+            2.05,
+            0.05,
+            3.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "east": {
+          "uv": [
+            2.05,
+            0.05,
+            3.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "west": {
+          "uv": [
+            2.05,
+            0.05,
+            3.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "up": {
+          "uv": [
+            2.05,
+            0.05,
+            3.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "down": {
+          "uv": [
+            2.05,
+            0.05,
+            3.95,
+            1.95
+          ],
+          "texture": "#mat"
+        }
+      },
+      "rotation": {
+        "angle": -18,
+        "axis": "z",
+        "origin": [
+          6.05,
+          8.55,
+          7.975
+        ]
+      }
+    },
+    {
+      "from": [
+        3.65,
+        4.15,
+        7.375
+      ],
+      "to": [
+        5.65,
+        8.15,
+        8.575
+      ],
+      "faces": {
+        "north": {
+          "uv": [
+            0.05,
+            0.05,
+            1.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "south": {
+          "uv": [
+            0.05,
+            0.05,
+            1.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "east": {
+          "uv": [
+            0.05,
+            0.05,
+            1.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "west": {
+          "uv": [
+            0.05,
+            0.05,
+            1.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "up": {
+          "uv": [
+            0.05,
+            0.05,
+            1.95,
+            1.95
+          ],
+          "texture": "#mat"
+        },
+        "down": {
+          "uv": [
+            0.05,
+            0.05,
+            1.95,
+            1.95
+          ],
+          "texture": "#mat"
+        }
+      },
+      "rotation": {
+        "angle": -18,
+        "axis": "z",
+        "origin": [
+          6.05,
+          8.55,
+          7.975
+        ]
+      }
+    }
+  ],
+  "display": {
+    "firstperson_righthand": {
+      "rotation": [
+        0,
+        68,
+        0
+      ],
+      "translation": [
+        1.5,
+        4.2,
+        -1.0
+      ],
+      "scale": [
+        0.675,
+        0.675,
+        0.675
+      ]
+    },
+    "firstperson_lefthand": {
+      "rotation": [
+        0,
+        -112,
+        0
+      ],
+      "translation": [
+        1.5,
+        4.2,
+        -1.0
+      ],
+      "scale": [
+        0.675,
+        0.675,
+        0.675
+      ]
+    },
+    "thirdperson_righthand": {
+      "rotation": [
+        0,
+        90,
+        0
+      ],
+      "translation": [
+        0.028,
+        1.227,
+        -4.377
+      ],
+      "scale": [
+        1.105,
+        1.105,
+        1.105
+      ]
+    },
+    "thirdperson_lefthand": {
+      "rotation": [
+        0,
+        -90,
+        0
+      ],
+      "translation": [
+        -0.028,
+        1.227,
+        -4.377
+      ],
+      "scale": [
+        1.105,
+        1.105,
+        1.105
+      ]
+    },
+    "head": {
+      "rotation": [
+        0,
+        90,
+        0
+      ],
+      "translation": [
+        0,
+        10,
+        -6
+      ],
+      "scale": [
+        0.6,
+        0.6,
+        0.6
+      ]
+    }
+  }
+}

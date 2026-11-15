@@ -14,6 +14,32 @@
           "type": "minecraft:model",
           "model": "arsenal:item/sniper_icon"
         }
+      },
+      {
+        "when": [
+          "firstperson_righthand",
+          "firstperson_lefthand"
+        ],
+        "model": {
+          "type": "minecraft:condition",
+          "property": "arsenal:mag_only",
+          "on_true": {
+            "type": "minecraft:model",
+            "model": "arsenal:item/sniper_mag"
+          },
+          "on_false": {
+            "type": "minecraft:condition",
+            "property": "arsenal:mag_out",
+            "on_true": {
+              "type": "minecraft:model",
+              "model": "arsenal:item/sniper_nomag"
+            },
+            "on_false": {
+              "type": "minecraft:model",
+              "model": "arsenal:item/sniper"
+            }
+          }
+        }
       }
     ],
     "fallback": {

@@ -15,9 +15,55 @@ pub fn decode_fired(data: &[u8]) -> Option<f32> {
     data.first().map(|&b| f32::from(b) / 10.0)
 }
 
+/// Servidor → clientes cercanos: `entity` empezó a recargar durante `ticks`. `local` es verdadero
+/// en el mensaje que recibe el propio tirador (su animación en primera persona).
+pub const RELOAD_START: &str = "arsenal:reload_start";
+
+/// Servidor → clientes cercanos: la recarga de `entity` se cortó (cambió de ítem).
+pub const RELOAD_STOP: &str = "arsenal:reload_stop";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ReloadStart {
+    pub entity: u32,
+    pub ticks: u16,
+    pub local: bool,
+}
+
+pub fn encode_reload_start(m: ReloadStart) -> [u8; 7] {
+    let [a, b, c, d] = m.entity.to_le_bytes();
+    let [e, f] = m.ticks.to_le_bytes();
+    [a, b, c, d, e, f, u8::from(m.local)]
+}
+
+pub fn decode_reload_start(data: &[u8]) -> Option<ReloadStart> {
+    let &[a, b, c, d, e, f, local] = data else { return None };
+    Some(ReloadStart {
+        entity: u32::from_le_bytes([a, b, c, d]),
+        ticks: u16::from_le_bytes([e, f]),
+        local: local != 0,
+    })
+}
+
+pub fn encode_reload_stop(entity: u32) -> [u8; 4] {
+    entity.to_le_bytes()
+}
+
+pub fn decode_reload_stop(data: &[u8]) -> Option<u32> {
+    Some(u32::from_le_bytes(data.try_into().ok()?))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reload_messages_round_trip_and_reject_garbage() {
+        let m = ReloadStart { entity: 0xDEAD_BEEF, ticks: 45, local: true };
+        assert_eq!(decode_reload_start(&encode_reload_start(m)), Some(m));
+        assert_eq!(decode_reload_start(&[1, 2, 3]), None);
+        assert_eq!(decode_reload_stop(&encode_reload_stop(77)), Some(77));
+        assert_eq!(decode_reload_stop(&[1]), None);
+    }
 
     #[test]
     fn fired_round_trips_and_clamps() {

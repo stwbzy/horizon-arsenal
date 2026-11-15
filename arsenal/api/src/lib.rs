@@ -3,6 +3,10 @@
 //!
 //! Regla de compatibilidad: sólo se actúa sobre ítems `arsenal:*`; los efectos de cámara se
 //! suman a los de otros mods, nunca los reemplazan.
+//!
+//! Los brazos a dos manos no los permite ningún hook: los dibujan dos inyecciones en el motor
+//! (`../fp_arms.rs`, `../tp_arms.rs`), que comparten estado con este crate a través del módulo
+//! `horizon_client::arsenal_rig` (`../rig.rs`).
 
 pub mod ballistics;
 pub mod net;
@@ -12,10 +16,10 @@ mod client;
 mod server;
 
 use horizon_client::mod_api::{
-    CameraShakeEvent, Flow, Hand, Hooks, Host, InventoryTickEvent, KeyEvent,
-    LivingEntityUseItemStartEvent, LivingEntityUseItemTickEvent, NetFromClientEvent,
-    NetFromServerEvent, PlayerLoggedInEvent, PlayerLoggedOutEvent, RenderHandPoseEvent, Text,
-    UseAnimation, UseAnimationEvent, UseDurationEvent,
+    CameraShakeEvent, ClientDisconnectingEvent, Flow, Hand, Hooks, Host, InventoryTickEvent,
+    ItemModelPropertyEvent, KeyEvent, LivingEntityUseItemStartEvent, LivingEntityUseItemTickEvent,
+    NetFromClientEvent, NetFromServerEvent, PlayerLoggedInEvent, PlayerLoggedOutEvent,
+    RenderHandEvent, RenderHandPoseEvent, Text, UseAnimation, UseAnimationEvent, UseDurationEvent,
 };
 
 /// Ticks que dura un "uso" de arma: de sobra para mantener el gatillo (como el catalejo).
@@ -123,5 +127,17 @@ impl Hooks for Arsenal {
 
     fn render_hand_pose(&self, _host: &dyn Host, event: &mut RenderHandPoseEvent<'_>) {
         self.client.render_hand_pose(event);
+    }
+
+    fn render_hand(&self, _host: &dyn Host, event: &mut RenderHandEvent<'_>) -> Flow {
+        self.client.render_hand(event)
+    }
+
+    fn item_model_property(&self, _host: &dyn Host, event: &mut ItemModelPropertyEvent<'_>) {
+        self.client.item_model_property(event);
+    }
+
+    fn client_disconnecting(&self, _host: &dyn Host, _event: &mut ClientDisconnectingEvent) {
+        self.client.disconnected();
     }
 }

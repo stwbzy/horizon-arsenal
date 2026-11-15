@@ -2,11 +2,13 @@
 
 Mod de armas para [Horizon](https://playhorizon.dev) (Minecraft: Java Edition 26.3 reescrito en Rust):
 pistola, fusil automático, escopeta, rifle de francotirador, cuchillo de combate y granadas, con
-modelos 3D, munición, recarga y retroceso.
+modelos 3D, munición, retroceso, agarre a dos manos (en primera y tercera persona) y recarga
+animada.
 
 > ⚠️ Es un **mod nativo**: el launcher compila su código Rust dentro del juego y se ejecuta con
 > acceso completo a tu equipo, sin sandbox. No está revisado por el registro de Horizon. Lee el
-> código (`arsenal/api/src/`) si quieres saber qué hace antes de instalarlo.
+> código (`arsenal/api/src/` y las inyecciones `arsenal/*.rs`) si quieres saber qué hace antes de
+> instalarlo.
 
 ## Instalación
 
@@ -27,7 +29,7 @@ El mod tiene **dos partes y necesitas las dos**:
    `horizon-mods/` de tu instancia (la que tiene `options.txt`; en Linux, la instancia principal es
    `~/.local/share/horizon/`). Crea la carpeta si no existe.
 3. Abre el juego, ve a **Opciones → Mods**, activa **Arsenal** y reinicia el juego.
-4. Al entrar a un mundo verás en el chat: `[Arsenal 0.1.0] cargado…`. Las armas están en la pestaña
+4. Al entrar a un mundo verás en el chat: `[Arsenal 0.2.0] cargado…`. Las armas están en la pestaña
    creativa **Arsenal**, o con `/give @s arsenal:pistol`.
 
 Para actualizar: `horizon-launcher mods update-github`, vuelve a compilar y
@@ -40,6 +42,13 @@ reemplaza `arsenal.hmod` por el de la nueva release.
 | Disparar | Clic derecho (el fusil dispara en automático mientras lo mantienes) |
 | Recargar | **R**, o agacharse + clic derecho |
 | Munición del cargador | La barra de durabilidad del arma |
+
+Con un arma en la mano el personaje la sujeta con las dos manos: en primera persona ves tus dos
+brazos (con tu skin) en la empuñadura y el guardamanos, y en tercera persona (F5) y para los
+demás jugadores, los dos brazos apuntan hacia donde miras. Al recargar se ve cómo sacas el
+cargador y metes otro (la escopeta, cartucho a cartucho). En primera persona, lo que lleves en la
+otra mano no se dibuja mientras empuñas un arma (en tercera persona sí se ve). Funciona igual con
+la mano principal izquierda.
 
 | Arma | Daño | Cargador | Munición |
 |---|---|---|---|
@@ -61,12 +70,16 @@ tablones; consulta el libro de recetas.
 ## Compatibilidad
 
 Hecho y probado con la Nightly de Horizon del 2026-11-08 (commit `fdc87ae`); el launcher compila
-sobre ese commit aunque tengas otra versión. Sólo actúa sobre ítems `arsenal:*`, y sus efectos de
-cámara se suman a los de otros mods (p. ej. Living Camera) en vez de reemplazarlos.
+sobre ese commit aunque tengas otra versión. Los brazos a dos manos no los permite ningún hook,
+así que Arsenal inyecta dos funciones pequeñas en el motor (`arsenal/fp_arms.rs`,
+`arsenal/tp_arms.rs`, con horizon-mixins): por eso está atado a ese commit. Ningún otro de los
+mods habituales (Living Camera, Create, Minimap…) inyecta en esas funciones. Sólo actúa sobre
+ítems `arsenal:*`, y sus efectos de cámara y de la mano se suman a los de otros mods (p. ej. el
+balanceo de Living Camera) en vez de reemplazarlos.
 
 ## Estado
 
-Versión 0.1.0, en desarrollo. Todavía no hacen nada especial: la granada (vuela, pero aún no explota) y
+Versión 0.2.0, en desarrollo. Todavía no hacen nada especial: la granada (vuela, pero aún no explota) y
 el puñal por la espalda del cuchillo. Pendiente también: zoom de la mira, HUD de munición propio y
 sonidos propios.
 
@@ -76,11 +89,17 @@ sonidos propios.
 tools/gen_content.py   genera content/ (modelos 3D en tools/gun_models.py); no edites content/ a mano
 tools/package.py       crea dist/arsenal.hnmod y dist/arsenal.hmod
 tools/dev_build.sh     instala y compila en una instancia de pruebas (arsenal-dev)
-arsenal/               el mod nativo (horizon-mixin.toml + crate api/)
+tools/rig_template.rs  plantilla de arsenal/rig.rs (gen_content.py le añade la tabla de agarres)
+arsenal/               el mod nativo: horizon-mixin.toml, crate api/ e inyecciones (fp_arms.rs, tp_arms.rs)
 ```
 
+Para ajustar en vivo dónde nacen los brazos, su grosor y el tamaño del arma en primera persona,
+arranca el juego con `ARSENAL_TUNE=/ruta/tune.txt` y edita ese archivo (claves de `Tune` en
+`tools/rig_template.rs`, p. ej. `arm_scale = 0.5`); se relee cada medio segundo. Los valores
+buenos se pasan después a `DEFAULT_TUNE`.
+
 Tests de la lógica pura: `rustc --edition 2024 --test arsenal/api/src/ballistics.rs -o /tmp/t && /tmp/t`
-(igual con `weapons.rs` y `net.rs`).
+(igual con `weapons.rs`, `net.rs` y `arsenal/rig.rs`).
 
 ## Licencia
 

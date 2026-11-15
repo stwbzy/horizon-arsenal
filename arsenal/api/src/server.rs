@@ -120,7 +120,11 @@ impl Server {
         }
 
         match &shooter.reload {
-            Some((reloading, _)) if *reloading != item => shooter.reload = None,
+            Some((reloading, _)) if *reloading != item => {
+                shooter.reload = None;
+                drop(shooters);
+                announce_reload_stop(host, &player);
+            }
             Some((_, done)) if now >= *done => {
                 shooter.reload = None;
                 let spent = host.carried_stack(event.slot).map_or(0, |s| s.damage);
@@ -143,11 +147,15 @@ impl Server {
 
     /// El jugador cambió de ítem: una recarga a medias se pierde.
     fn cancel_reload_of_acting(&self, host: &mut dyn Host) {
-        if let Some(player) = host.acting_player()
-            && let Ok(mut shooters) = self.shooters.lock()
-            && let Some(shooter) = shooters.get_mut(&player.uuid)
-        {
-            shooter.reload = None;
+        let Some(player) = host.acting_player() else { return };
+        let was_reloading = self
+            .shooters
+            .lock()
+            .ok()
+            .and_then(|mut s| s.get_mut(&player.uuid).and_then(|s| s.reload.take()))
+            .is_some();
+        if was_reloading {
+            announce_reload_stop(host, &player);
         }
     }
 
@@ -186,6 +194,44 @@ fn start_reload(
     shooter.reload = Some((stack.item.to_string(), now + i64::from(weapon.reload_ticks)));
     sound(host, player, "minecraft:item.crossbow.loading_start", 0.8, 1.2);
     host.action_bar(player.uuid, Text::literal("Recargando…"));
+    announce_reload_start(host, player, weapon.reload_ticks);
+}
+
+/// Distancia a la que otros jugadores ven la animación de recarga (bloques).
+const RELOAD_SEEN_FROM: f64 = 64.0;
+
+/// A quién avisar de lo que hace `player`: él mismo y los jugadores de su dimensión cerca.
+fn watchers(host: &mut dyn Host, player: &NativeServerPlayer) -> Vec<u128> {
+    host.server_players()
+        .into_iter()
+        .filter(|p| {
+            p.uuid == player.uuid
+                || (p.dimension == player.dimension
+                    && dist_sq(p.position, player.position) <= RELOAD_SEEN_FROM.powi(2))
+        })
+        .map(|p| p.uuid)
+        .collect()
+}
+
+/// La animación de recarga la hace cada cliente por su cuenta con la duración que le decimos.
+fn announce_reload_start(host: &mut dyn Host, player: &NativeServerPlayer, ticks: u32) {
+    let Ok(entity) = u32::try_from(player.entity_id) else { return };
+    for uuid in watchers(host, player) {
+        let msg = net::encode_reload_start(net::ReloadStart {
+            entity,
+            ticks: u16::try_from(ticks).unwrap_or(u16::MAX),
+            local: uuid == player.uuid,
+        });
+        // Un cliente sin el mod no tiene el canal: no pasa nada.
+        let _ = host.net_send_to_player(uuid, net::RELOAD_START, &msg);
+    }
+}
+
+fn announce_reload_stop(host: &mut dyn Host, player: &NativeServerPlayer) {
+    let Ok(entity) = u32::try_from(player.entity_id) else { return };
+    for uuid in watchers(host, player) {
+        let _ = host.net_send_to_player(uuid, net::RELOAD_STOP, &net::encode_reload_stop(entity));
+    }
 }
 
 fn fire(host: &mut dyn Host, player: &NativeServerPlayer, weapon: &Weapon, now: i64) {
