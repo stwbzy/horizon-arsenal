@@ -50,7 +50,8 @@ def pack_native() -> Path:
     }
     out = DIST / f"{meta['id']}.hnmod"
     files = sorted(p for p in NATIVE.rglob("*")
-                   if p.is_file() and p.suffix in {".rs", ".toml"} and "target" not in p.parts)
+                   if p.is_file() and "target" not in p.parts
+                   and (p.suffix in {".rs", ".toml"} or p.name.startswith("LICENSE")))
     with zipfile.ZipFile(out, "w") as zf:
         add(zf, "horizon-native.json", (json.dumps(meta, indent=2) + "\n").encode())
         for p in files:

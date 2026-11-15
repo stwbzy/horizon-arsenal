@@ -81,3 +81,7 @@ arsenal/               el mod nativo (horizon-mixin.toml + crate api/)
 
 Tests de la lógica pura: `rustc --edition 2024 --test arsenal/api/src/ballistics.rs -o /tmp/t && /tmp/t`
 (igual con `weapons.rs` y `net.rs`).
+
+## Licencia
+
+[MIT](LICENSE) © 2026 Alexis Stwby.
