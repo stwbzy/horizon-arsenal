@@ -333,7 +333,7 @@ def main() -> None:
     (ROOT / "horizon-mod.toml").write_text(
         f'id = "{NS}"\n'
         'name = "Arsenal"\n'
-        'version = "0.2.0"\n'
+        'version = "0.2.1"\n'
         'description = "Armas de fuego, granadas y cuchillo para Horizon."\n'
         'authors = ["stwby"]\n'
         'api = "0.2"\n'

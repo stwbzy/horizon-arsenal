@@ -12,14 +12,19 @@ animada.
 
 ## Instalación
 
-El mod tiene **dos partes y necesitas las dos**:
+Como Voltz, Arsenal son **dos proyectos del registro de Horizon y necesitas los dos**:
 
-| Archivo | Qué es | Cómo se instala |
+| Proyecto | Qué es | Archivo |
 |---|---|---|
-| `arsenal.hnmod` | El código (disparos, daño, munición, recarga) | Desde el launcher, con el enlace de GitHub |
-| `arsenal.hmod` | Ítems, modelos 3D, texturas, recetas, idiomas | A mano (Horizon aún no instala `.hmod` desde un enlace) |
+| **Arsenal** (`arsenal_core`) | El código (disparos, daño, munición, recarga, brazos) | `arsenal_core.hnmod` |
+| **Arsenal (assets)** (`arsenal`) | Ítems, modelos 3D, texturas, recetas, idiomas. No tiene código | `arsenal.hmod` |
 
-1. **Parte nativa.** En el launcher de Horizon: **Mods → Add from GitHub** y pega
+**Desde el launcher** (cuando estén listados): **Mods → Horizon**, busca «Arsenal» e instala los dos
+(el nativo te pedirá aceptar el aviso de código nativo), después pulsa **Build**. Abre el juego,
+ve a **Opciones → Mods**, comprueba que están activos y reinicia.
+
+**Desde GitHub / a mano:**
+1. **Parte nativa.** Launcher: **Mods → Add from GitHub** y pega
    `https://github.com/stwbzy/horizon-arsenal`. Acepta el aviso y pulsa **Build**.
    (Por terminal: `horizon-launcher mods add-github https://github.com/stwbzy/horizon-arsenal --trust-native-code`
    y después `horizon-launcher native-build --trust-native-code`.)
@@ -29,11 +34,12 @@ El mod tiene **dos partes y necesitas las dos**:
    `horizon-mods/` de tu instancia (la que tiene `options.txt`; en Linux, la instancia principal es
    `~/.local/share/horizon/`). Crea la carpeta si no existe.
 3. Abre el juego, ve a **Opciones → Mods**, activa **Arsenal** y reinicia el juego.
-4. Al entrar a un mundo verás en el chat: `[Arsenal 0.2.0] cargado…`. Las armas están en la pestaña
-   creativa **Arsenal**, o con `/give @s arsenal:pistol`.
 
-Para actualizar: `horizon-launcher mods update-github`, vuelve a compilar y
-reemplaza `arsenal.hmod` por el de la nueva release.
+Al entrar a un mundo verás en el chat: `[Arsenal 0.2.1] cargado…`. Las armas están en la pestaña
+creativa **Arsenal**, o con `/give @s arsenal:pistol`.
+
+**Actualizar desde 0.2.0:** el mod nativo cambió de id (`arsenal` → `arsenal_core`). Quita el
+`arsenal.hnmod` antiguo (Mods → Remove) antes de instalar el nuevo, o los dos chocarán.
 
 ## Cómo se juega
 
@@ -79,15 +85,23 @@ balanceo de Living Camera) en vez de reemplazarlos.
 
 ## Estado
 
-Versión 0.2.0, en desarrollo. Todavía no hacen nada especial: la granada (vuela, pero aún no explota) y
+Versión 0.2.1, en desarrollo. Todavía no hacen nada especial: la granada (vuela, pero aún no explota) y
 el puñal por la espalda del cuchillo. Pendiente también: zoom de la mira, HUD de munición propio y
 sonidos propios.
+
+## Un solo archivo (futuro)
+
+Horizon define un `.hmod` único con contenido y código nativo (`docs/api/mod-files.md`), pero el
+registro y el launcher todavía publican/instalan los mods nativos como `.hnmod`. Cuando lo lean,
+Arsenal podrá pasar a un solo archivo (con un único id: hoy son `arsenal_core` y `arsenal`). Ya está preparado:
+`python3 tools/package.py --combined` genera `dist/combined/arsenal.hmod` (no se sube a las
+releases; `cargo horizon-mod check` aún lo rechaza porque no entiende el formato).
 
 ## Para desarrollar
 
 ```
 tools/gen_content.py   genera content/ (modelos 3D en tools/gun_models.py); no edites content/ a mano
-tools/package.py       crea dist/arsenal.hnmod y dist/arsenal.hmod
+tools/package.py       crea dist/arsenal_core.hnmod y dist/arsenal.hmod (--combined: un solo .hmod, futuro)
 tools/dev_build.sh     instala y compila en una instancia de pruebas (arsenal-dev)
 tools/rig_template.rs  plantilla de arsenal/rig.rs (gen_content.py le añade la tabla de agarres)
 arsenal/               el mod nativo: horizon-mixin.toml, crate api/ e inyecciones (fp_arms.rs, tp_arms.rs)

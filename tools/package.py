@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 """Empaqueta Arsenal para distribuir, en dist/:
 
-  * arsenal.hnmod: la parte nativa (código Rust). Es lo que instala "Add from GitHub" del launcher.
-  * arsenal.hmod:  la parte de contenido (ítems, modelos, texturas, recetas, idiomas). Horizon aún
-                   no instala .hmod desde un enlace, así que va a mano en la carpeta horizon-mods/.
+  * arsenal_core.hnmod: la parte nativa (código Rust). Es lo que instala "Add from GitHub" del launcher.
+  * arsenal.hmod:  la parte de contenido (ítems, modelos, texturas, recetas, idiomas). Son dos
+                   proyectos del registro (como Voltz): `arsenal_core` (nativo) y `arsenal`
+                   (assets, el espacio de nombres de los ítems).
 
-Uso: python3 tools/package.py   (regenera content/ antes de empaquetar)
+  * (opcional, --combined) dist/combined/arsenal.hmod: contenido + código nativo en UN solo .hmod
+                   (docs/api/mod-files.md de Horizon; ahí los dos manifiestos deben llevar el MISMO id, así que
+                   habría que unificar arsenal_core/arsenal). El registro y el launcher aún no lo leen:
+                   NO se sube a las releases hasta que lo hagan. Se genera para probarlo.
+
+Uso: python3 tools/package.py [--combined]   (regenera content/ antes de empaquetar)
 """
 import json
 import re
@@ -70,6 +76,20 @@ def pack_content() -> Path:
     return out
 
 
+def pack_combined() -> Path:
+    """Un solo .hmod con contenido (horizon-mod.toml, assets/, data/) y código nativo
+    (horizon-native.json, mixins/<id>/...). Mismas entradas que los dos archivos por separado."""
+    out_dir = DIST / "combined"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "arsenal.hmod"
+    with zipfile.ZipFile(DIST / "arsenal_core.hnmod") as nat, zipfile.ZipFile(DIST / "arsenal.hmod") as con, \
+            zipfile.ZipFile(out, "w") as zf:
+        for src in (con, nat):
+            for name in sorted(src.namelist()):
+                add(zf, name, src.read(name))
+    return out
+
+
 def main() -> None:
     subprocess.run([sys.executable, str(ROOT / "tools" / "gen_content.py")], check=True)
     native = toml_value((NATIVE / "horizon-mixin.toml").read_text(), "version")
@@ -77,7 +97,10 @@ def main() -> None:
     if native != content:
         sys.exit(f"versiones distintas: nativo {native}, contenido {content}")
     DIST.mkdir(exist_ok=True)
-    for path in (pack_native(), pack_content()):
+    paths = [pack_native(), pack_content()]
+    if "--combined" in sys.argv:
+        paths.append(pack_combined())
+    for path in paths:
         print(f"{path.relative_to(ROOT)}  ({path.stat().st_size} bytes)")
 
 

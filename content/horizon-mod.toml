@@ -1,6 +1,6 @@
 id = "arsenal"
 name = "Arsenal"
-version = "0.2.0"
+version = "0.2.1"
 description = "Armas de fuego, granadas y cuchillo para Horizon."
 authors = ["stwby"]
 api = "0.2"
