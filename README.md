@@ -45,8 +45,9 @@ creativa **Arsenal**, o con `/give @s arsenal:pistol`.
 
 | Acción | Control |
 |---|---|
-| Disparar | Clic derecho (el fusil dispara en automático mientras lo mantienes) |
-| Recargar | **R**, o agacharse + clic derecho |
+| Disparar | Clic izquierdo (la AK-74 y la StG 44 disparan en automático mientras lo mantienes) |
+| Apuntar | Mantener clic derecho: el arma sube a la cara, alineas sus miras y hay algo de zoom (la Mk 18, ×4 con retícula). Apuntando, las balas se dispersan menos |
+| Recargar | **R**, o agacharse + clic izquierdo |
 | Munición del cargador | La barra de durabilidad del arma |
 
 Con un arma en la mano el personaje la sujeta con las dos manos: en primera persona ves tus dos
@@ -58,10 +59,11 @@ la mano principal izquierda.
 
 | Arma | Daño | Cargador | Munición |
 |---|---|---|---|
-| Pistola | 6 | 12 | Balas de pistola |
-| Fusil | 5 (automático) | 30 | Balas de fusil |
+| Glock 17 | 6 | 17 | Balas de pistola |
+| AK-74 (negra, con mira réflex) | 5 (automática) | 30 | Balas de fusil |
+| StG 44 | 6,5 (automática, más lenta) | 30 | Balas de fusil |
 | Escopeta | 3 por perdigón × 8 | 6 | Cartuchos |
-| Francotirador | 18 | 5 | Balas de fusil |
+| Mk 18 de largo alcance | 13 (semiautomática, mira ×4) | 20 | Balas de fusil |
 | Cuchillo | 7 (cuerpo a cuerpo) | — | — |
 
 En Creativo las recargas son gratis. En Supervivencia se fabrican con hierro, cobre, pólvora y
@@ -85,9 +87,8 @@ balanceo de Living Camera) en vez de reemplazarlos.
 
 ## Estado
 
-Versión 0.2.1, en desarrollo. Todavía no hacen nada especial: la granada (vuela, pero aún no explota) y
-el puñal por la espalda del cuchillo. Pendiente también: zoom de la mira, HUD de munición propio y
-sonidos propios.
+Versión 0.3.0, en desarrollo. Todavía no hacen nada especial: la granada (vuela, pero aún no explota) y
+el puñal por la espalda del cuchillo. Pendiente también: HUD de munición propio y sonidos propios.
 
 ## Un solo archivo (futuro)
 

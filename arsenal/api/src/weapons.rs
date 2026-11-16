@@ -45,19 +45,34 @@ pub struct Weapon {
     pub ads_fov: f32,
 }
 
+impl Weapon {
+    /// Dispersión en grados, menor apuntando (la escopeta abre menos su cono).
+    pub fn spread(&self, aiming: bool) -> f32 {
+        match self.kind {
+            Kind::Hitscan { pellets, spread_deg, .. } if aiming => {
+                spread_deg * if pellets > 1 { 0.75 } else { 0.35 }
+            }
+            Kind::Hitscan { spread_deg, .. } => spread_deg,
+            _ => 0.0,
+        }
+    }
+}
+
 pub const WEAPONS: &[Weapon] = &[
+    // Glock 17.
     Weapon {
         id: "pistol",
         kind: Kind::Hitscan { pellets: 1, spread_deg: 0.5, range: 64.0 },
         damage: 6.0,
         mode: FireMode::Semi,
-        cooldown_ticks: 4,
-        magazine: 12,
+        cooldown_ticks: 3,
+        magazine: 17,
         reload_ticks: 30,
         ammo: Some("ammo_pistol"),
-        recoil_deg: 1.5,
+        recoil_deg: 1.4,
         ads_fov: 0.85,
     },
+    // AK-74 negra modificada (mira réflex).
     Weapon {
         id: "rifle",
         kind: Kind::Hitscan { pellets: 1, spread_deg: 1.2, range: 96.0 },
@@ -82,17 +97,31 @@ pub const WEAPONS: &[Weapon] = &[
         recoil_deg: 4.0,
         ads_fov: 0.9,
     },
+    // Mk 18 modificada de largo alcance: semiautomática, mira telescópica.
     Weapon {
         id: "sniper",
-        kind: Kind::Hitscan { pellets: 1, spread_deg: 0.05, range: 192.0 },
-        damage: 18.0,
-        mode: FireMode::Bolt,
-        cooldown_ticks: 30,
-        magazine: 5,
-        reload_ticks: 70,
+        kind: Kind::Hitscan { pellets: 1, spread_deg: 0.1, range: 192.0 },
+        damage: 13.0,
+        mode: FireMode::Semi,
+        cooldown_ticks: 6,
+        magazine: 20,
+        reload_ticks: 55,
         ammo: Some("ammo_rifle"),
-        recoil_deg: 6.0,
+        recoil_deg: 3.5,
         ads_fov: 0.25, // zoom ×4
+    },
+    // StG 44: más lenta que la AK-74, pero cada bala pega más y patea más.
+    Weapon {
+        id: "stg44",
+        kind: Kind::Hitscan { pellets: 1, spread_deg: 1.5, range: 96.0 },
+        damage: 6.5,
+        mode: FireMode::Auto,
+        cooldown_ticks: 4,
+        magazine: 30,
+        reload_ticks: 50,
+        ammo: Some("ammo_rifle"),
+        recoil_deg: 1.3,
+        ads_fov: 0.8,
     },
     Weapon {
         id: "grenade",
@@ -137,6 +166,16 @@ mod tests {
         assert!(by_item("minecraft:bow").is_none());
         assert!(by_item("othermod:pistol").is_none());
         assert!(by_item("arsenal:ammo_pistol").is_none());
+    }
+
+    #[test]
+    fn aiming_tightens_the_spread() {
+        for w in WEAPONS {
+            if let Kind::Hitscan { spread_deg, .. } = w.kind {
+                assert_eq!(w.spread(false), spread_deg);
+                assert!(w.spread(true) < spread_deg, "{}", w.id);
+            }
+        }
     }
 
     #[test]

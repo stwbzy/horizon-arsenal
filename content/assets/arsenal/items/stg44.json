@@ -1,0 +1,50 @@
+{
+  "model": {
+    "type": "minecraft:select",
+    "property": "minecraft:display_context",
+    "cases": [
+      {
+        "when": [
+          "gui",
+          "ground",
+          "fixed",
+          "on_shelf"
+        ],
+        "model": {
+          "type": "minecraft:model",
+          "model": "arsenal:item/stg44_icon"
+        }
+      },
+      {
+        "when": [
+          "firstperson_righthand",
+          "firstperson_lefthand"
+        ],
+        "model": {
+          "type": "minecraft:condition",
+          "property": "arsenal:mag_only",
+          "on_true": {
+            "type": "minecraft:model",
+            "model": "arsenal:item/stg44_mag"
+          },
+          "on_false": {
+            "type": "minecraft:condition",
+            "property": "arsenal:mag_out",
+            "on_true": {
+              "type": "minecraft:model",
+              "model": "arsenal:item/stg44_nomag"
+            },
+            "on_false": {
+              "type": "minecraft:model",
+              "model": "arsenal:item/stg44"
+            }
+          }
+        }
+      }
+    ],
+    "fallback": {
+      "type": "minecraft:model",
+      "model": "arsenal:item/stg44"
+    }
+  }
+}

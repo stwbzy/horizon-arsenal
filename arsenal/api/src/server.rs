@@ -3,8 +3,11 @@
 //! La munición del cargador vive en el propio ítem como su desgaste: `max_damage` = tamaño del
 //! cargador y `damage` = balas gastadas, así la barra de durabilidad vanilla es la barra de munición
 //! y se guarda con el mundo sin nada extra. Los cambios al ítem se aplican en `inventory_tick`
-//! (el único sitio donde la API deja modificar el stack en mano con seguridad), y sólo cuando el
-//! jugador suelta el gatillo.
+//! (el único sitio donde la API deja modificar el stack en mano con seguridad).
+//!
+//! El gatillo es el clic izquierdo: el cliente avisa al pulsarlo y al soltarlo (`net::TRIGGER`) y
+//! los disparos salen en `inventory_tick`, donde el estado del tirador (su vista, su ítem) es el
+//! del juego.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -27,13 +30,16 @@ const DAMAGE_TYPE: &str = "arsenal:bullet";
 struct Shooter {
     /// Tick de juego a partir del cual puede volver a disparar.
     next_fire: i64,
+    /// El gatillo se pulsó y aún no se atendió (un clic rápido cuenta aunque ya esté suelto).
+    pressed: bool,
+    /// El gatillo sigue pulsado (fuego automático).
+    held: bool,
+    /// Apunta con el arma (clic derecho mantenido): menos dispersión.
+    aiming: bool,
     /// Balas disparadas que aún no se restaron del ítem.
     pending_shots: u32,
     /// Recarga en curso: ítem del arma y tick en que termina.
     reload: Option<(String, i64)>,
-    /// Último tick en que usaba el arma. Mientras la usa no se toca el ítem: cambiarlo podría
-    /// cortar el uso continuo (y con él el fuego automático).
-    last_use: i64,
 }
 
 #[derive(Default)]
@@ -42,17 +48,34 @@ pub struct Server {
 }
 
 impl Server {
-    /// El jugador usa el arma (clic derecho mantenido, como un catalejo: la mano no se balancea).
-    /// `held` es falso al empezar el uso y verdadero en cada tick mientras se mantiene: sólo las
-    /// armas automáticas disparan manteniendo; las demás necesitan soltar y volver a pulsar.
-    pub fn trigger(&self, host: &mut dyn Host, stack: &ItemStack, held: bool) {
+    /// El cliente pulsó (o soltó) el gatillo. Sólo se anota: el disparo sale en el siguiente
+    /// `inventory_tick` de ese jugador.
+    pub fn trigger_changed(&self, uuid: u128, down: bool) {
+        let Ok(mut shooters) = self.shooters.lock() else { return };
+        let shooter = shooters.entry(uuid).or_default();
+        shooter.held = down;
+        if down {
+            shooter.pressed = true;
+        }
+    }
+
+    /// El cliente empezó (o dejó) de apuntar.
+    pub fn aim_changed(&self, uuid: u128, aiming: bool) {
+        if let Ok(mut shooters) = self.shooters.lock() {
+            shooters.entry(uuid).or_default().aiming = aiming;
+        }
+    }
+
+    /// Aprieta el gatillo del arma de `stack`. `held` es falso en la pulsación y verdadero en
+    /// cada tick mientras se mantiene: sólo las armas automáticas disparan manteniendo; las demás
+    /// necesitan soltar y volver a pulsar.
+    fn trigger(&self, host: &mut dyn Host, player: &NativeServerPlayer, stack: &ItemStack, held: bool) {
         let Some(weapon) = weapons::by_item(&stack.item) else { return };
         let Kind::Hitscan { .. } = weapon.kind else { return };
-        let Some(player) = host.acting_player() else { return };
         let Some(now) = game_time(host, &player.dimension) else { return };
         let Ok(mut shooters) = self.shooters.lock() else { return };
         let shooter = shooters.entry(player.uuid).or_default();
-        shooter.last_use = now;
+        let aiming = shooter.aiming;
 
         if held && weapon.mode != FireMode::Auto {
             return;
@@ -65,17 +88,17 @@ impl Server {
             if loaded == 0 {
                 // Un solo clic seco por pulsación, no uno por tick manteniendo el gatillo.
                 shooter.next_fire = now + 10;
-                sound(host, &player, "minecraft:block.dispenser.fail", 0.6, 1.6);
+                sound(host, player, "minecraft:block.dispenser.fail", 0.6, 1.6);
             }
-            start_reload(host, &player, weapon, stack, shooter, now);
+            start_reload(host, player, weapon, stack, shooter, now);
             return;
         }
 
         shooter.next_fire = now + i64::from(weapon.cooldown_ticks);
         shooter.pending_shots += 1;
         drop(shooters);
-        fire(host, &player, weapon, now);
-        show_ammo(host, &player, weapon, loaded - 1);
+        fire(host, player, weapon, aiming, now);
+        show_ammo(host, player, weapon, loaded - 1);
     }
 
     /// Tecla de recarga desde el cliente.
@@ -91,7 +114,8 @@ impl Server {
         }
     }
 
-    /// Cada tick de cada stack del jugador: aplica disparos pendientes y termina recargas.
+    /// Cada tick de cada stack del jugador: dispara si tiene el gatillo pulsado, aplica los
+    /// disparos al ítem y termina recargas.
     pub fn inventory_tick(&self, host: &mut dyn Host, event: &InventoryTickEvent) {
         if !event.selected {
             return;
@@ -107,12 +131,23 @@ impl Server {
         }
         let Some(player) = host.acting_player() else { return };
         let Some(now) = game_time(host, &player.dimension) else { return };
+
+        // El gatillo: la pulsación (aunque ya se haya soltado) y luego, mantenido, cada tick.
+        let pull = self.shooters.lock().ok().and_then(|mut s| {
+            let shooter = s.get_mut(&player.uuid)?;
+            let pressed = std::mem::take(&mut shooter.pressed);
+            (pressed || shooter.held).then_some(!pressed)
+        });
+        if let Some(held) = pull
+            && let Some(stack) = host.carried_stack(event.slot).map(|s| s.clone())
+        {
+            self.trigger(host, &player, &stack, held);
+        }
+
         let Ok(mut shooters) = self.shooters.lock() else { return };
         let Some(shooter) = shooters.get_mut(&player.uuid) else { return };
 
-        let using = now - shooter.last_use <= 1;
-        let reload_done = matches!(&shooter.reload, Some((r, done)) if *r == item && now >= *done);
-        if shooter.pending_shots > 0 && (!using || reload_done) {
+        if shooter.pending_shots > 0 {
             let shots = std::mem::take(&mut shooter.pending_shots);
             if let Some(stack) = host.carried_stack(event.slot) {
                 stack.damage = (stack.damage + shots).min(weapon.magazine);
@@ -234,8 +269,9 @@ fn announce_reload_stop(host: &mut dyn Host, player: &NativeServerPlayer) {
     }
 }
 
-fn fire(host: &mut dyn Host, player: &NativeServerPlayer, weapon: &Weapon, now: i64) {
-    let Kind::Hitscan { pellets, spread_deg, range } = weapon.kind else { return };
+fn fire(host: &mut dyn Host, player: &NativeServerPlayer, weapon: &Weapon, aiming: bool, now: i64) {
+    let Kind::Hitscan { pellets, range, .. } = weapon.kind else { return };
+    let spread_deg = weapon.spread(aiming);
     let eye: Vec3 = [
         player.position[0],
         player.position[1] + f64::from(player.eye_height),

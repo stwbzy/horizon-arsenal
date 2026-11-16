@@ -34,7 +34,17 @@ MATERIALS = {
     "brass": (206, 162, 66),
     "lens": (64, 132, 186),
     "red": (168, 40, 36),
+    # 0.3.0 (se añaden al final: la posición de las muestras anteriores no cambia)
+    "wood_black": (30, 27, 26),      # madera pintada de negro (AK-74)
+    "wood_walnut": (112, 66, 36),    # nogal viejo (StG 44)
+    "steel_worn": (84, 83, 80),      # chapa con el pavonado gastado
+    "bakelite": (92, 42, 26),
 }
+# Materiales con veta: vetas a lo largo de la pieza en vez de ruido uniforme. El valor es cuánto
+# aclara la veta (la pintura negra deja asomar un poco la madera).
+GRAIN = {"wood_black": (16, 11, 6), "wood_walnut": (-22, -16, -10)}
+# Materiales con desgaste: motas sueltas de otro tono.
+WORN = {"steel_worn": (-26, -24, -20)}
 SWATCH = 8          # píxeles por muestra
 ATLAS = 64          # tamaño de la textura
 PER_ROW = ATLAS // SWATCH
@@ -49,8 +59,14 @@ def materials_texture() -> Image.Image:
     inferior/derecho más oscuro (biselado), para que los cubos no se vean planos."""
     img = Image.new("RGBA", (ATLAS, ATLAS), (0, 0, 0, 0))
     rng = random.Random(1234)
-    for i, base in enumerate(MATERIALS.values()):
+    for i, (name, base) in enumerate(MATERIALS.items()):
         ox, oy = (i % PER_ROW) * SWATCH, (i // PER_ROW) * SWATCH
+        # Veta: un par de filas enteras y algún tramo suelto.
+        streaks = {}
+        if name in GRAIN:
+            for y in rng.sample(range(1, SWATCH - 1), 3):
+                x0 = rng.choice((0, 0, rng.randint(1, 4)))
+                streaks[y] = (x0, x0 + rng.randint(4, SWATCH))
         for y in range(SWATCH):
             for x in range(SWATCH):
                 d = rng.randint(-5, 5)
@@ -58,7 +74,12 @@ def materials_texture() -> Image.Image:
                     d += 16
                 elif x == SWATCH - 1 or y == SWATCH - 1:
                     d -= 16
-                img.putpixel((ox + x, oy + y), (*_shade(base, d), 255))
+                c = _shade(base, d)
+                if y in streaks and streaks[y][0] <= x < streaks[y][1]:
+                    c = tuple(max(0, min(255, v + t)) for v, t in zip(c, GRAIN[name]))
+                elif name in WORN and 0 < x < SWATCH - 1 and 0 < y < SWATCH - 1 and rng.random() < 0.22:
+                    c = tuple(max(0, min(255, v + t)) for v, t in zip(c, WORN[name]))
+                img.putpixel((ox + x, oy + y), (*c, 255))
     return img
 
 
@@ -98,40 +119,111 @@ def thick(t: float) -> tuple[float, float]:
     return 8 - t / 2, 8 + t / 2
 
 
+def _curved_mag(px: float, py: float, width: float, seg: float, angles: list[float], mat: str,
+                base: str, z: tuple[float, float] = (7.3, 8.7)) -> list[Box]:
+    """Cargador curvo: tramos encadenados, cada uno colgado del final del anterior y girado un
+    poco más (ángulo positivo = la punta se va hacia el cañón). El último tramo es el más largo:
+    `holds()` toma su base como el punto por donde lo agarra la mano de apoyo. Termina en una
+    tapa de otro material."""
+    out = []
+    for i, a in enumerate(angles):
+        last = i == len(angles) - 1
+        ln = seg + (0.5 if last else 0.0)
+        out.append(Box((px - width / 2, py - ln, z[0]), (px + width / 2, py, z[1]), mat,
+                       rot_z=a, origin=(px, py, 8), role="mag"))
+        r = math.radians(a)
+        step = ln if last else ln - 0.4  # los tramos se solapan para no dejar cuñas vacías
+        px, py = px + step * math.sin(r), py - step * math.cos(r)
+    a = angles[-1]
+    out.append(Box((px - width / 2 - 0.15, py - 0.4, z[0] - 0.1), (px + width / 2 + 0.15, py, z[1] + 0.1),
+                   base, rot_z=a, origin=(px, py, 8), role="mag"))
+    return out
+
+
+def _strips(x0: float, step: float, n: int, w: float, y0: float, y1: float, mat: str,
+            z: tuple[float, float]) -> list[Box]:
+    """Tiras verticales repetidas que sobresalen un pelo por los dos costados (estrías de la
+    corredera, ranuras del guardamanos)."""
+    return [Box((x0 + i * step, y0, z[0]), (x0 + i * step + w, y1, z[1]), mat) for i in range(n)]
+
+
 def _pistol() -> list[Box]:
+    """Glock 17: corredera cuadrada, armazón de polímero con riel, guardamonte recto."""
+    g = dict(rot_z=-20, origin=(5.7, 7.2, 8))  # la empuñadura y lo que va dentro
     return [
-        Box((2.0, 8.0, Z0), (13.0, 10.4, Z1), "steel"),                          # corredera
-        Box((2.6, 10.4, 7.6), (3.4, 10.9, 8.4), "steel_dark"),                   # mira trasera
-        Box((11.8, 10.4, 7.8), (12.4, 10.8, 8.2), "steel_light"),                # mira delantera
-        Box((13.0, 8.6, 7.55), (13.5, 9.6, 8.45), "rubber"),                     # boca del cañón
-        Box((3.0, 7.0, 7.2), (12.4, 8.0, 8.8), "polymer"),                       # armazón
-        Box((3.0, 2.4, 7.15), (5.8, 7.2, 8.85), "polymer", rot_z=-18, origin=(5.8, 7.0, 8), tag="grip"),  # empuñadura
-        Box((3.3, 2.0, 7.25), (5.5, 2.6, 8.75), "steel", rot_z=-18, origin=(5.8, 7.0, 8), role="mag"),  # base del cargador
-        Box((3.4, 2.6, 7.4), (5.4, 6.6, 8.6), "steel_dark", rot_z=-18, origin=(5.8, 7.0, 8), role="load"),  # cuerpo del cargador
-        Box((6.0, 5.6, 7.65), (9.2, 6.0, 8.35), "polymer"),                      # guardamonte (abajo)
-        Box((8.8, 6.0, 7.65), (9.2, 7.0, 8.35), "polymer"),                      # guardamonte (frente)
-        Box((6.9, 6.0, 7.8), (7.3, 7.0, 8.2), "steel_light"),                    # gatillo
-        Box((9.0, 9.0, 8.99), (12.6, 9.6, 9.05), "steel"),                       # ventana de expulsión
+        Box((2.0, 8.1, Z0), (12.6, 10.3, Z1), "steel_dark"),                     # corredera
+        *_strips(2.5, 0.45, 4, 0.22, 8.3, 10.1, "rubber", (6.95, 9.05)),         # estrías traseras
+        Box((12.6, 8.95, 7.55), (12.9, 9.85, 8.45), "steel"),                    # boca del cañón
+        Box((12.6, 8.25, 7.75), (12.72, 8.7, 8.25), "rubber"),                   # varilla guía
+        Box((8.2, 9.3, 8.2), (10.5, 10.33, 9.04), "steel"),                      # ventana de expulsión (recámara)
+        Box((2.3, 10.3, 7.25), (3.1, 10.8, 7.75), "polymer"),                    # alza (izq.)
+        Box((2.3, 10.3, 8.25), (3.1, 10.8, 8.75), "polymer"),                    # alza (der.)
+        Box((11.6, 10.3, 7.8), (12.2, 10.75, 8.2), "polymer", faces={"west": "steel_light"}),  # punto de mira
+        Box((5.6, 7.1, 7.1), (12.3, 8.1, 8.9), "polymer"),                       # armazón (delante)
+        Box((2.4, 7.0, 7.1), (5.6, 8.1, 8.9), "polymer"),                        # armazón (detrás)
+        Box((1.8, 7.55, 7.3), (2.5, 8.1, 8.7), "polymer"),                       # cola de castor
+        Box((9.6, 6.85, 7.3), (11.9, 7.1, 8.7), "polymer"),                      # riel de accesorios
+        Box((10.3, 6.84, 7.28), (10.6, 7.0, 8.72), "rubber"),                    # muesca del riel
+        Box((5.7, 7.85, 6.95), (6.9, 8.08, 7.1), "steel"),                       # retén de la corredera
+        Box((2.9, 1.9, 7.1), (5.7, 7.3, 8.9), "polymer", tag="grip", **g),       # empuñadura
+        Box((3.3, 2.6, 7.05), (5.3, 6.2, 8.95), "rubber", **g),                  # textura de la empuñadura
+        Box((2.8, 1.45, 7.05), (5.9, 1.95, 8.95), "steel_dark", role="mag", **g),  # base del cargador
+        Box((3.3, 1.95, 7.4), (5.3, 6.9, 8.6), "steel", role="load", **g),       # cuerpo del cargador
+        Box((5.9, 5.3, 7.6), (9.0, 5.7, 8.4), "polymer"),                        # guardamonte (abajo)
+        Box((8.6, 5.7, 7.6), (9.0, 7.1, 8.4), "polymer"),                        # guardamonte (frente, recto)
+        Box((6.9, 5.9, 7.8), (7.3, 7.1, 8.2), "steel_dark"),                     # gatillo
     ]
 
 
 def _rifle() -> list[Box]:
+    """AK-74 negra modificada: madera pintada de negro (guardamanos y cubierta del tubo de
+    gases), polímero negro (culata, empuñadura, cargador) y mira réflex en riel lateral."""
+    s = dict(rot_z=4, origin=(0.0, 9.3, 8))  # caída de la culata
     return [
-        Box((-4.0, 6.2, 7.2), (2.0, 9.6, 8.8), "polymer"),                       # culata
-        Box((-4.2, 5.8, 7.1), (-3.6, 9.8, 8.9), "rubber"),                       # cantonera
-        Box((2.0, 8.4, 7.5), (5.0, 9.4, 8.5), "steel_dark"),                     # tubo
-        Box((5.0, 7.0, Z0), (14.0, 10.0, Z1), "steel_dark"),                     # cajón de mecanismos
-        Box((5.5, 10.0, 7.4), (13.5, 10.5, 8.6), "steel_light"),                 # riel superior
-        Box((6.0, 10.5, 7.6), (7.0, 11.4, 8.4), "steel_dark"),                   # mira trasera
-        Box((14.0, 7.4, 6.8), (21.0, 9.8, 9.2), "olive", tag="fore"),            # guardamanos
-        Box((14.2, 9.8, 7.5), (20.8, 10.2, 8.5), "olive_dark"),                  # riel del guardamanos
-        Box((21.0, 8.3, 7.6), (26.0, 9.1, 8.4), "steel"),                        # cañón
-        Box((19.4, 10.2, 7.8), (20.0, 11.6, 8.2), "steel_dark"),                 # mira delantera
-        Box((26.0, 8.0, 7.4), (27.6, 9.4, 8.6), "steel_dark"),                   # bocacha
-        Box((5.6, 3.0, 7.2), (7.6, 7.2, 8.8), "polymer", rot_z=-20, origin=(7.6, 7.0, 8), tag="grip"),  # empuñadura
-        Box((9.4, 2.4, 7.3), (11.8, 7.0, 8.7), "steel", rot_z=10, origin=(9.4, 7.0, 8), role="mag"),  # cargador
-        Box((8.0, 6.2, 7.7), (9.2, 7.0, 8.3), "steel_light"),                    # gatillo
-        Box((11.0, 8.2, 8.99), (13.0, 9.2, 9.05), "brass"),                      # ventana de expulsión
+        Box((-9.0, 5.5, 7.2), (-6.0, 9.3, 8.8), "polymer", **s),                 # culata (talón)
+        Box((-6.0, 6.5, 7.2), (-2.6, 9.3, 8.8), "polymer", **s),                 # culata (medio)
+        Box((-2.6, 7.3, 7.2), (0.0, 9.3, 8.8), "polymer", **s),                  # culata (garganta)
+        Box((-7.6, 7.7, 7.15), (-3.0, 8.2, 8.85), "rubber", **s),                # acanaladura de la culata
+        Box((-9.5, 5.3, 7.15), (-9.0, 9.4, 8.85), "rubber", **s),                # cantonera
+        Box((0.0, 7.0, Z0), (9.5, 9.3, Z1), "steel_dark"),                       # cajón de mecanismos
+        Box((0.4, 9.3, 7.1), (9.2, 10.1, 8.9), "steel_dark"),                    # tapa del cajón
+        *_strips(1.6, 2.2, 3, 0.3, 10.1, 10.22, "steel", (7.2, 8.8)),            # nervios de la tapa
+        Box((5.8, 9.3, 8.9), (8.6, 9.75, 9.04), "steel"),                        # portacierre (ventana)
+        Box((7.6, 9.35, 9.0), (8.2, 9.7, 9.75), "steel_light"),                  # palanca de montar
+        Box((3.0, 8.2, 9.0), (7.4, 8.55, 9.1), "steel", rot_z=-7, origin=(7.4, 8.4, 8)),  # selector
+        Box((9.5, 9.3, 7.1), (11.3, 10.3, 8.9), "steel_dark"),                   # base del alza
+        Box((9.8, 10.3, 7.6), (12.6, 10.55, 8.4), "steel"),                      # alza tangencial
+        Box((9.6, 10.55, 7.6), (10.0, 10.95, 7.85), "steel"),                    # muesca del alza (izq.)
+        Box((9.6, 10.55, 8.15), (10.0, 10.95, 8.4), "steel"),                    # muesca del alza (der.)
+        Box((9.5, 7.0, 6.75), (16.3, 8.9, 9.25), "wood_black", tag="fore"),      # guardamanos inferior
+        Box((11.3, 9.1, 7.15), (16.3, 10.35, 8.85), "wood_black"),               # cubierta del tubo de gases
+        Box((16.3, 7.2, 6.9), (16.8, 9.1, 9.1), "steel"),                        # abrazadera del guardamanos
+        Box((16.3, 9.45, 7.5), (17.6, 10.15, 8.5), "steel_dark"),                # tubo de gases
+        Box((17.4, 8.3, 7.4), (18.6, 10.25, 8.6), "steel_dark"),                 # toma de gases
+        Box((16.3, 8.35, 7.6), (24.2, 9.1, 8.4), "steel"),                       # cañón
+        Box((16.8, 7.75, 7.85), (24.0, 8.0, 8.15), "steel_light"),               # baqueta
+        Box((22.0, 8.1, 7.4), (23.2, 10.0, 8.6), "steel_dark"),                  # base del punto de mira
+        Box((22.0, 10.0, 7.4), (23.2, 11.2, 7.62), "steel_dark"),                # oreja izq.
+        Box((22.0, 10.0, 8.38), (23.2, 11.2, 8.6), "steel_dark"),                # oreja der.
+        Box((22.5, 10.0, 7.9), (22.7, 10.9, 8.1), "steel_light"),                # punto de mira
+        Box((24.2, 8.2, 7.5), (24.9, 9.25, 8.5), "steel"),                       # collar del freno
+        Box((24.9, 7.9, 7.3), (27.2, 9.55, 8.7), "steel_dark"),                  # freno de boca
+        Box((25.7, 8.3, 7.27), (26.6, 9.15, 8.73), "rubber"),                    # ventanas del freno
+        Box((1.6, 2.8, 7.2), (3.7, 7.1, 8.8), "polymer", rot_z=-16, origin=(3.7, 7.0, 8), tag="grip"),  # empuñadura
+        Box((3.9, 5.5, 7.6), (6.7, 5.8, 8.4), "steel_dark"),                     # guardamonte
+        Box((6.4, 5.5, 7.6), (6.75, 7.0, 8.4), "steel_dark"),                    # retén del cargador
+        Box((4.7, 5.9, 7.8), (5.1, 7.0, 8.2), "steel_light"),                    # gatillo
+        *_curved_mag(8.2, 7.2, 2.4, 2.3, [5, 14, 23], "polymer", "steel_dark"),  # cargador curvo
+        # Modificación: riel lateral (lado izquierdo) con mira réflex.
+        Box((2.6, 7.9, 6.8), (7.6, 8.7, 7.0), "steel"),                          # riel lateral
+        Box((3.6, 8.7, 6.7), (6.4, 10.5, 6.95), "steel_dark"),                   # brazo de la montura
+        Box((3.6, 10.3, 6.7), (6.4, 10.6, 8.7), "steel_dark"),                   # puente de la montura
+        # Mira réflex: un marco hueco (se apunta a través) con el punto rojo en el cristal.
+        Box((3.8, 10.6, 7.05), (6.2, 10.85, 8.95), "polymer"),                   # base de la réflex
+        Box((3.8, 10.85, 7.05), (6.2, 12.3, 7.3), "polymer"),                    # lado izq.
+        Box((3.8, 10.85, 8.7), (6.2, 12.3, 8.95), "polymer"),                    # lado der.
+        Box((3.8, 12.05, 7.3), (6.2, 12.3, 8.7), "polymer"),                     # techo
+        Box((6.0, 11.38, 7.93), (6.06, 11.52, 8.07), "red"),                     # punto rojo
     ]
 
 
@@ -153,33 +245,111 @@ def _shotgun() -> list[Box]:
 
 
 def _sniper() -> list[Box]:
+    """Mk 18 modificada de largo alcance: guardamanos largo con ranuras, cañón alargado con
+    freno, mira telescópica grande, culata ajustable con carrillera, bípode plegado y cargador
+    corto de 20."""
     return [
-        Box((-7.0, 5.6, 7.0), (2.0, 9.4, 9.0), "olive"),                         # culata
-        Box((-7.3, 5.2, 6.95), (-6.6, 9.6, 9.05), "rubber"),                     # cantonera
-        Box((-4.0, 9.4, 7.3), (1.0, 10.2, 8.7), "olive_dark"),                   # carrillera
-        Box((1.0, 3.6, 7.15), (3.4, 7.2, 8.85), "olive", rot_z=-18, origin=(3.4, 7.0, 8), tag="grip"),  # pistolete
-        Box((2.0, 7.2, 7.2), (10.0, 9.6, 8.8), "steel_dark"),                    # cajón / cerrojo
-        Box((4.0, 8.6, 8.8), (4.6, 9.1, 10.0), "steel_light"),                   # palanca del cerrojo
-        Box((3.9, 8.4, 9.9), (4.7, 9.2, 10.6), "steel_dark"),                    # bola del cerrojo
-        Box((5.4, 5.8, 7.4), (7.6, 7.2, 8.6), "steel", role="mag"),              # cargador
-        Box((4.0, 6.4, 7.7), (4.8, 7.2, 8.3), "steel_light"),                    # gatillo
-        Box((10.0, 7.0, 6.9), (19.0, 9.4, 9.1), "olive", tag="fore"),            # guardamanos
-        Box((10.0, 8.3, 7.6), (30.0, 9.1, 8.4), "steel_dark"),                   # cañón
-        Box((30.0, 8.0, 7.35), (31.8, 9.4, 8.65), "steel", ),                    # freno de boca
-        Box((4.5, 9.6, 7.7), (5.5, 10.6, 8.3), "steel_dark"),                    # anilla trasera
-        Box((10.5, 9.6, 7.7), (11.5, 10.6, 8.3), "steel_dark"),                  # anilla delantera
-        Box((3.5, 10.6, 7.4), (13.0, 11.8, 8.6), "polymer"),                     # tubo de la mira
-        Box((1.8, 10.4, 7.2), (3.6, 12.0, 8.8), "polymer", faces={"west": "lens"}),   # ocular
-        Box((13.0, 10.2, 7.1), (15.6, 12.2, 8.9), "polymer", faces={"east": "lens"}), # objetivo
-        Box((7.6, 11.8, 7.8), (8.6, 12.5, 8.2), "steel"),                        # torreta
+        Box((-7.2, 8.6, 7.55), (0.0, 9.5, 8.45), "steel_dark"),                  # tubo del amortiguador
+        Box((-8.5, 8.2, 7.2), (-2.0, 9.9, 8.8), "polymer"),                      # culata (cuerpo)
+        Box((-8.5, 5.9, 7.2), (-5.6, 8.2, 8.8), "polymer"),                      # culata (talón)
+        Box((-5.6, 7.1, 7.2), (-3.6, 8.2, 8.8), "polymer"),                      # culata (escalón)
+        Box((-9.0, 5.7, 7.1), (-8.5, 10.0, 8.9), "rubber"),                      # cantonera
+        Box((-7.4, 9.9, 7.3), (-3.0, 10.5, 8.7), "rubber"),                      # carrillera
+        Box((0.0, 6.9, Z0), (8.0, 8.6, Z1), "steel_dark"),                       # cajón inferior
+        Box((5.0, 5.9, 7.1), (7.7, 6.9, 8.9), "steel_dark"),                     # brocal del cargador
+        Box((0.0, 8.6, 7.05), (8.4, 10.2, 8.95), "steel_dark"),                  # cajón superior
+        Box((-0.5, 9.85, 7.3), (0.5, 10.25, 8.7), "steel"),                      # palanca de carga
+        Box((1.1, 9.0, 8.95), (1.8, 9.6, 9.4), "steel"),                         # empujador del cierre
+        Box((3.4, 8.85, 8.94), (6.1, 9.6, 9.05), "steel"),                       # ventana de expulsión
+        Box((6.1, 8.8, 8.95), (6.7, 9.5, 9.3), "steel_dark"),                    # deflector de vainas
+        Box((0.3, 10.2, 7.5), (21.0, 10.55, 8.5), "steel"),                      # riel superior corrido
+        Box((8.4, 7.9, 6.9), (21.0, 10.2, 9.1), "polymer", tag="fore"),          # guardamanos largo
+        *_strips(9.6, 2.9, 4, 1.9, 8.75, 9.35, "rubber", (6.87, 9.13)),          # ranuras M-LOK
+        Box((21.0, 8.7, 7.6), (27.6, 9.5, 8.4), "steel"),                        # cañón
+        Box((27.6, 8.4, 7.35), (29.6, 9.8, 8.65), "steel_dark"),                 # freno de boca
+        *_strips(28.0, 0.7, 2, 0.35, 8.6, 9.6, "rubber", (7.32, 8.68)),          # ventanas del freno
+        Box((0.8, 2.8, 7.2), (3.0, 7.0, 8.8), "polymer", rot_z=-18, origin=(3.0, 6.9, 8), tag="grip"),  # pistolete
+        Box((3.2, 5.6, 7.6), (5.1, 5.9, 8.4), "steel_dark"),                     # guardamonte
+        Box((3.9, 6.0, 7.8), (4.3, 6.9, 8.2), "steel_light"),                    # gatillo
+        Box((5.3, 3.4, 7.3), (7.4, 6.6, 8.7), "polymer", rot_z=6, origin=(6.35, 6.6, 8), role="mag"),   # cargador de 20
+        Box((5.15, 3.0, 7.2), (7.55, 3.4, 8.8), "rubber", rot_z=6, origin=(6.35, 6.6, 8), role="mag"),  # base del cargador
+        # Mira telescópica.
+        Box((1.8, 10.55, 7.5), (7.7, 10.8, 8.5), "steel_dark"),                  # montura de una pieza
+        Box((2.0, 10.8, 7.45), (2.9, 11.5, 8.55), "steel_dark"),                 # anilla trasera
+        Box((6.6, 10.8, 7.45), (7.5, 11.5, 8.55), "steel_dark"),                 # anilla delantera
+        Box((0.6, 11.3, 7.4), (10.4, 12.5, 8.6), "polymer"),                     # tubo
+        Box((-1.3, 11.0, 7.1), (1.0, 12.8, 8.9), "polymer", faces={"west": "lens"}),   # ocular
+        Box((10.0, 10.9, 7.0), (13.6, 12.9, 9.0), "polymer", faces={"east": "lens"}),  # campana del objetivo
+        Box((4.4, 12.5, 7.6), (5.6, 13.3, 8.4), "steel_dark"),                   # torreta de elevación
+        Box((4.4, 11.5, 8.6), (5.6, 12.3, 9.3), "steel_dark"),                   # torreta de deriva
+        Box((4.4, 11.5, 6.7), (5.6, 12.3, 7.4), "steel_dark"),                   # rueda de paralaje
+        # Bípode plegado hacia delante, bajo el cañón (deja libre la mano de apoyo).
+        Box((19.6, 7.4, 7.2), (20.9, 7.95, 8.8), "steel_dark"),                  # soporte del bípode
+        Box((20.6, 7.45, 6.95), (27.0, 7.9, 7.4), "steel_dark"),                 # pata izq.
+        Box((20.6, 7.45, 8.6), (27.0, 7.9, 9.05), "steel_dark"),                 # pata der.
+        Box((27.0, 7.35, 6.9), (27.6, 8.0, 7.45), "rubber"),                     # pie izq.
+        Box((27.0, 7.35, 8.55), (27.6, 8.0, 9.1), "rubber"),                     # pie der.
+    ]
+
+
+def _stg44() -> list[Box]:
+    """StG 44 original: chapa estampada gastada, culata de madera, empuñadura de baquelita,
+    cilindro de gases largo sobre el cañón y cargador largo y curvo."""
+    s = dict(rot_z=5, origin=(0.0, 9.4, 8))  # caída de la culata
+    return [
+        Box((-10.0, 5.4, 7.1), (-6.5, 9.3, 8.9), "wood_walnut", **s),            # culata (talón)
+        Box((-6.5, 6.2, 7.1), (-3.0, 9.35, 8.9), "wood_walnut", **s),            # culata (medio)
+        Box((-3.0, 7.0, 7.1), (-0.4, 9.4, 8.9), "wood_walnut", **s),             # culata (garganta)
+        Box((-10.5, 5.2, 7.05), (-10.0, 9.4, 8.95), "steel_worn", **s),          # cantonera de chapa
+        Box((-0.6, 6.9, 7.05), (0.0, 9.6, 8.95), "steel_dark"),                  # casquillo de la culata
+        Box((0.0, 8.6, 7.05), (11.5, 10.4, 8.95), "steel_worn"),                 # cajón (chapa estampada)
+        Box((1.5, 9.35, 7.02), (10.0, 9.6, 8.98), "steel_dark"),                 # nervio estampado
+        Box((0.4, 6.6, 7.15), (7.8, 8.6, 8.85), "steel_dark"),                   # caja del disparador
+        Box((7.8, 6.0, 7.1), (10.6, 8.6, 8.9), "steel_worn"),                    # brocal del cargador
+        Box((5.0, 8.95, 8.93), (8.0, 9.9, 9.02), "steel_dark"),                  # ventana de expulsión (tapa)
+        Box((8.6, 9.3, 6.3), (9.2, 9.75, 7.05), "steel_light"),                  # palanca de montar (izq.)
+        Box((1.3, 2.6, 7.2), (3.6, 6.8, 8.8), "bakelite", rot_z=-14, origin=(3.6, 6.7, 8), tag="grip"),  # empuñadura
+        Box((3.8, 5.2, 7.6), (6.9, 5.5, 8.4), "steel_dark"),                     # guardamonte (abajo)
+        Box((6.6, 5.2, 7.6), (6.9, 6.6, 8.4), "steel_dark"),                     # guardamonte (frente)
+        Box((4.8, 5.6, 7.8), (5.2, 6.6, 8.2), "steel_light"),                    # gatillo
+        *_curved_mag(9.2, 6.3, 2.3, 2.7, [4, 12, 20], "steel_worn", "steel_dark"),  # cargador largo y curvo
+        Box((11.5, 7.8, 6.95), (16.6, 9.3, 9.05), "steel_dark", tag="fore"),     # guardamanos de chapa
+        *_strips(12.4, 1.3, 3, 0.4, 8.1, 9.0, "rubber", (6.92, 9.08)),           # orificios del guardamanos
+        Box((16.6, 8.25, 7.6), (24.6, 9.0, 8.4), "steel"),                       # cañón
+        Box((11.5, 9.4, 7.5), (19.4, 10.25, 8.5), "steel_worn"),                 # cilindro de gases
+        Box((19.4, 9.55, 7.7), (20.3, 10.1, 8.3), "steel_dark"),                 # tapón de gases
+        Box((18.2, 8.2, 7.4), (19.4, 10.35, 8.6), "steel_dark"),                 # toma de gases
+        Box((22.6, 8.1, 7.45), (23.8, 10.6, 8.55), "steel_dark"),                # base del punto de mira
+        Box((22.5, 10.6, 7.4), (23.9, 11.8, 7.6), "steel_dark"),                 # capuchón (izq.)
+        Box((22.5, 10.6, 8.4), (23.9, 11.8, 8.6), "steel_dark"),                 # capuchón (der.)
+        Box((22.5, 11.8, 7.4), (23.9, 12.0, 8.6), "steel_dark"),                 # capuchón (arriba)
+        Box((23.1, 10.6, 7.9), (23.3, 11.4, 8.1), "steel_light"),                # punto de mira
+        Box((24.6, 8.05, 7.5), (25.4, 9.2, 8.5), "steel_dark"),                  # tuerca de boca
+        Box((8.8, 10.4, 7.4), (11.4, 10.8, 8.6), "steel_dark"),                  # base del alza
+        Box((9.0, 10.8, 7.6), (11.3, 11.05, 8.4), "steel", rot_z=6, origin=(9.0, 10.8, 8)),  # alza escalonada
+        Box((10.9, 11.0, 7.6), (11.3, 11.5, 7.85), "steel"),                     # muesca del alza (izq.)
+        Box((10.9, 11.0, 8.15), (11.3, 11.5, 8.4), "steel"),                     # muesca del alza (der.)
     ]
 
 
 GUN_PARTS = {
-    "pistol": _pistol(),
-    "rifle": _rifle(),
+    "pistol": _pistol(),    # Glock 17
+    "rifle": _rifle(),      # AK-74 negra modificada
     "shotgun": _shotgun(),
-    "sniper": _sniper(),
+    "sniper": _sniper(),    # Mk 18 de largo alcance
+    "stg44": _stg44(),
+}
+
+# Al apuntar, el ojo va sobre la línea de mira: (x de la mira trasera, altura de la línea), en
+# píxeles del modelo sin centrar. Las miras de hierro tienen trasera y delantera a la misma
+# altura, así la línea queda paralela al cañón. `scope`: mira telescópica (al apuntar del todo se
+# ve la retícula en vez del arma).
+SIGHTS = {
+    "pistol": (2.3, 10.78, False),    # alza y punto de mira de la Glock
+    "rifle": (3.8, 11.45, False),     # punto rojo de la mira réflex de la AK-74
+    "shotgun": (1.5, 10.35, False),   # lomo del cajón hacia el punto de mira
+    "sniper": (-1.3, 11.9, True),     # eje de la mira telescópica de la Mk 18
+    "stg44": (10.9, 11.42, False),    # muesca del alza y punto de mira con capuchón
 }
 
 
@@ -344,11 +514,21 @@ def parts_of(name: str) -> list[Box]:
     return GUN_PARTS[name]
 
 
+def sight(name: str) -> list[float]:
+    """El punto de mira (ver SIGHTS) en píxeles del modelo centrado, en el plano medio (z = 8)."""
+    parts = GUN_PARTS[name]
+    lo, hi = _bounds(visible(parts))
+    x, y, _ = SIGHTS[name]
+    off = [8 - (lo[a] + hi[a]) / 2 for a in range(3)]
+    return [round(x + off[0], 3), round(y + off[1], 3), 8.0]
+
+
 def rig_entry(name: str) -> dict:
-    """Lo que la inyección de primera persona necesita saber del arma."""
+    """Lo que la inyección de primera persona (y la pose de apuntar) necesita saber del arma."""
     s1, _ = scales(GUN_PARTS[name])
     return {**holds(GUN_PARTS[name]), "fp_rotation": FP_ROTATION,
-            "fp_translation": FP_TRANSLATION, "fp_scale": s1}
+            "fp_translation": FP_TRANSLATION, "fp_scale": s1,
+            "sight": sight(name), "scope": SIGHTS[name][2]}
 
 
 # --- Icono (vista lateral rasterizada) ---------------------------------------------------------
@@ -372,7 +552,10 @@ def icon(parts: list[Box]) -> Image.Image:
     """Vista lateral (+Z) del modelo: cada pieza con su color, borde superior claro, contorno
     oscuro de cada pieza y un contorno exterior de 1 px alrededor de la silueta."""
     parts = visible(parts)
-    lo, hi = _bounds(parts)
+    # Límites con las piezas ya giradas (una empuñadura inclinada se sale de su caja sin girar).
+    pts = [q for p in parts for q in _polygon(p, 1.0, 0.0, 0.0)]
+    lo = (min(x for x, _ in pts), min(ICON - y for _, y in pts))
+    hi = (max(x for x, _ in pts), max(ICON - y for _, y in pts))
     span = max(hi[0] - lo[0], hi[1] - lo[1])
     scale = (ICON - 4) / span
     ox = lo[0] - ((ICON / scale) - (hi[0] - lo[0])) / 2
@@ -384,7 +567,9 @@ def icon(parts: list[Box]) -> Image.Image:
     for p in sorted(parts, key=lambda b: max(b.frm[2], b.to[2])):
         poly = _polygon(p, scale, ox, oy)
         base = MATERIALS[p.faces.get("south", p.mat)]
-        draw.polygon(poly, fill=(*base, 255), outline=(*_shade(base, -28), 255))
+        # En las piezas negras un borde más oscuro no se ve: se les da uno más claro.
+        edge = _shade(base, 20 if sum(base) < 150 else -28)
+        draw.polygon(poly, fill=(*base, 255), outline=(*edge, 255))
         top = sorted(poly, key=lambda q: q[1])[:2]
         if abs(top[0][1] - top[1][1]) < 1.5 and abs(top[0][0] - top[1][0]) > 2:
             draw.line([(top[0][0], top[0][1] + 1), (top[1][0], top[1][1] + 1)],

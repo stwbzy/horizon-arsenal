@@ -3,7 +3,7 @@
   "max_stack_size": 1,
   "rarity": "rare",
   "components": {
-    "minecraft:max_damage": 5,
+    "minecraft:max_damage": 20,
     "minecraft:damage": 0
   }
 }

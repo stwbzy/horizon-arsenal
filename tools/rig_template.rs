@@ -36,6 +36,10 @@ pub struct Gun {
     pub fp_rotation: [f32; 3],
     pub fp_translation: [f32; 3],
     pub fp_scale: f32,
+    /// Al apuntar, este punto (la mira trasera o el ocular) queda delante del ojo.
+    pub sight: [f32; 3],
+    /// Mira telescópica: apuntando del todo se ve la retícula en vez del arma.
+    pub scope: bool,
 }
 
 // @GUNS@
@@ -122,6 +126,10 @@ pub struct Tune {
     /// centra en el punto; así queda debajo de la pieza en vez de atravesarla).
     pub grip_drop: f32,
     pub fore_drop: f32,
+    /// Apuntando: a qué distancia del ojo queda la mira (bloques) y cuánto por debajo de la
+    /// línea de la vista.
+    pub ads_dist: f32,
+    pub ads_drop: f32,
 }
 
 pub const DEFAULT_TUNE: Tune = Tune {
@@ -134,6 +142,8 @@ pub const DEFAULT_TUNE: Tune = Tune {
     gun_scale: 1.25,
     grip_drop: 0.5,
     fore_drop: 2.5,
+    ads_dist: 0.42,
+    ads_drop: 0.0,
 };
 
 impl Tune {
@@ -164,6 +174,14 @@ impl Tune {
                 self.fore_drop = s;
                 true
             }
+            ("ads_dist", &[s]) => {
+                self.ads_dist = s;
+                true
+            }
+            ("ads_drop", &[s]) => {
+                self.ads_drop = s;
+                true
+            }
             _ => false,
         }
     }
@@ -191,6 +209,50 @@ pub fn tune() -> Tune {
             tune
         }
     }
+}
+
+// --- Apuntar -----------------------------------------------------------------------------------
+
+/// `v` girado `deg` grados sobre Y (como `Mat4::from_rotation_y`).
+fn rot_y(v: [f32; 3], deg: f32) -> [f32; 3] {
+    let (s, c) = deg.to_radians().sin_cos();
+    [v[0] * c + v[2] * s, v[1], -v[0] * s + v[2] * c]
+}
+
+/// La pose del arma apuntando, en los términos de `render_hand_pose` (x, y, z en bloques y yaw
+/// en grados; `scale` es la que ya lleva el arma): el cañón paralelo a la vista y la mira del
+/// arma (`Gun::sight`) en el centro de la pantalla, `tune.ads_dist` por delante del ojo.
+///
+/// Repite la cadena de primera persona (la de `fp_arms`), sin balanceo ni altura de equipar:
+/// pose del mod · sitio de la mano (`item_pose`) · `display` del modelo · el modelo (px / 16 - ½).
+pub fn aim_pose(gun: &Gun, left: bool, scale: f32, tune: &Tune) -> [f32; 4] {
+    let f = if left { -1.0 } else { 1.0 };
+    // ItemTransform.apply espeja la traslación X y el giro de la mano izquierda; su JSON lleva
+    // -(180 - giro), así que el giro efectivo es 180 - giro (ver tools/gun_models.py).
+    let turn = if left { 180.0 - gun.fp_rotation[1] } else { gun.fp_rotation[1] };
+    let model = gun.sight.map(|c| gun.fp_scale * (c / 16.0 - 0.5));
+    let turned = rot_y(model, turn);
+    let hand = [f * 0.56, -0.52, -0.72];
+    let display = [f * gun.fp_translation[0], gun.fp_translation[1], gun.fp_translation[2]];
+    let at: [f32; 3] = std::array::from_fn(|i| hand[i] + display[i] / 16.0 + turned[i]);
+    // El cañón (+X del modelo) gira `turn` en el display: `90 - turn` más lo deja mirando a -Z.
+    let yaw = 90.0 - turn;
+    let r = rot_y(at.map(|c| c * scale), yaw);
+    [-r[0], -tune.ads_drop - r[1], -tune.ads_dist - r[2], yaw]
+}
+
+/// Cuánto se tarda en llevarse el arma a la cara (y en bajarla), en segundos.
+pub const AIM_SECONDS: f32 = 0.18;
+
+/// Un paso de la transición de apuntar: `value` sube (o baja) hacia `target` en `AIM_SECONDS`.
+pub fn aim_step(value: f32, target: bool, dt: f32) -> f32 {
+    let step = dt.max(0.0) / AIM_SECONDS;
+    if target { (value + step).min(1.0) } else { (value - step).max(0.0) }
+}
+
+/// La transición como se ve: suave al empezar y al llegar.
+pub fn aim_ease(value: f32) -> f32 {
+    smooth(value)
 }
 
 // --- Mano principal ---------------------------------------------------------------------------
@@ -367,6 +429,53 @@ pub fn third_person_arms(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// La cadena de primera persona hacia delante, como la recorre el juego, para un punto del
+    /// modelo (px) con la pose `[x, y, z, yaw]` y la escala del mod.
+    fn on_screen(g: &Gun, left: bool, pose: [f32; 4], scale: f32, px: [f32; 3]) -> [f32; 3] {
+        let f = if left { -1.0 } else { 1.0 };
+        let turn = if left { 180.0 - g.fp_rotation[1] } else { g.fp_rotation[1] };
+        let model = rot_y(px.map(|c| g.fp_scale * (c / 16.0 - 0.5)), turn);
+        let local = [
+            f * 0.56 + f * g.fp_translation[0] / 16.0 + model[0],
+            -0.52 + g.fp_translation[1] / 16.0 + model[1],
+            -0.72 + g.fp_translation[2] / 16.0 + model[2],
+        ];
+        let r = rot_y(local.map(|c| c * scale), pose[3]);
+        [pose[0] + r[0], pose[1] + r[1], pose[2] + r[2]]
+    }
+
+    #[test]
+    fn aiming_puts_the_sight_in_front_of_the_eye_and_the_barrel_straight() {
+        let tune = DEFAULT_TUNE;
+        for g in GUNS {
+            for left in [false, true] {
+                let pose = aim_pose(g, left, 1.25, &tune);
+                let s = on_screen(g, left, pose, 1.25, g.sight);
+                assert!(s[0].abs() < 1e-4, "{} {left}: {s:?}", g.item);
+                assert!((s[1] + tune.ads_drop).abs() < 1e-4, "{} {left}: {s:?}", g.item);
+                assert!((s[2] + tune.ads_dist).abs() < 1e-4, "{} {left}: {s:?}", g.item);
+                // Un punto más adelante en el cañón sigue en el centro, más lejos.
+                let ahead = on_screen(g, left, pose, 1.25, [g.sight[0] + 8.0, g.sight[1], g.sight[2]]);
+                assert!(ahead[0].abs() < 1e-4 && (ahead[1] - s[1]).abs() < 1e-4, "{} {left}", g.item);
+                assert!(ahead[2] < s[2], "{} {left}", g.item);
+            }
+        }
+    }
+
+    #[test]
+    fn aiming_takes_its_time_both_ways() {
+        let mut v = 0.0;
+        for _ in 0..3 {
+            v = aim_step(v, true, AIM_SECONDS / 4.0);
+        }
+        assert!(v > 0.7 && v < 0.8);
+        v = aim_step(v, true, 1.0);
+        assert_eq!(v, 1.0);
+        assert_eq!(aim_step(v, false, 10.0), 0.0);
+        assert_eq!(aim_ease(0.0), 0.0);
+        assert_eq!(aim_ease(1.0), 1.0);
+    }
 
     #[test]
     fn every_gun_is_found_by_item() {

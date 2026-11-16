@@ -2,7 +2,7 @@
 # Compilar: tools/dev_build.sh (o horizon-launcher native-build <esta carpeta> --trust-native-code)
 [mod]
 id = "arsenal_core"
-version = "0.2.1"
+version = "0.3.0"
 
 # Commit de Horizon con el que está probado (Nightly 2026-11-08). Las inyecciones de abajo apuntan
 # a funciones concretas del motor, así que el mod queda atado a este commit: el launcher compila

@@ -194,3 +194,34 @@ necesita su propio giro en el JSON (180 - 68) porque el espejo del juego es un g
 - Las inyecciones por `target` atan el mod a fdc87ae: actualizar Horizon exigirá revisarlas (hoy ya está fijado).
 - Las poses de brazos se ajustan a ojo con capturas; puede llevar varias iteraciones por arma.
 - Sin `ydotool` no puedo pulsar teclas en el juego: la recarga con R y F5 tendrás que probarlas tú.
+
+## 7. Fase 10 — Armas nuevas, apuntar y clic izquierdo para disparar (v0.3.0, local) — HECHA
+
+Pedido: sustituir el fusil por una **AK-74 negra modificada** (madera pintada de negro + polímero
+negro), la pistola por una **Glock 17**, el francotirador por una **Mk 18 modificada de largo
+alcance**, añadir una **StG 44** original; apuntar con clic derecho mantenido y disparar con el
+izquierdo. Sólo en local: sin push ni release, sin tocar la instancia principal.
+
+### Decisiones
+- Se mantienen los ids (`pistol`, `rifle`, `sniper`): las armas de los mundos se convierten solas.
+  La StG 44 es `arsenal:stg44`. AK-74, Mk 18 y StG 44 usan las «Balas de fusil».
+- Glock: cargador 17. Mk 18: semiautomática, 13 de daño, cargador 20, zoom ×4 con retícula.
+  StG 44: automática más lenta que la AK (4 ticks), 6,5 de daño, más retroceso.
+- **Controles**: el hook `mouse_button_pre` se queda con los clics cuando hay un arma en la mano
+  (el juego no golpea, no rompe bloques, no usa). El gatillo va al servidor (`arsenal:trigger`,
+  pulsado/suelto) y los disparos salen en `inventory_tick`, donde la vista del tirador es la buena
+  (`view_hit`). Sin ratón (mando, `horizon-ctl`) se oye `interaction_key`: atacar = un disparo,
+  usar mantenido (se repite cada 4 ticks) = apuntar.
+- **Apuntar**: `rig::aim_pose` calcula la pose de `render_hand_pose` que deja el cañón paralelo
+  a la vista y el punto de mira de cada modelo (`SIGHTS` en `tools/gun_models.py`) en el centro,
+  `ads_dist` por delante del ojo (tests con la cadena de primera persona). Transición de 0,18 s,
+  zoom con el hook `zoom` (suave, sensibilidad reducida), sin cruz (`gui_layer_pre`), y en la
+  Mk 18 retícula dibujada con `quad`/`fill` y el arma oculta. El servidor dispersa menos apuntando
+  (`arsenal:aim`). Durante la recarga el arma baja de la cara.
+- La mira réflex de la AK es un marco hueco con punto rojo (se apunta a través).
+
+### Resultado (probado en `arsenal-dev`)
+- Las cuatro armas a la cadera, apuntando (diestro y zurdo) y la retícula de la Mk 18.
+- Clic izquierdo real (ratón) y simulado: dispara y gasta munición. Recarga con R. Sin panics.
+- No probado: mantener el clic izquierdo con el ratón real para el automático (las herramientas
+  sólo hacen clics cortos); la lógica es la misma del fuego automático anterior.

@@ -31,10 +31,11 @@ AMMO = {"template": "minecraft:iron_nugget", "max_stack_size": 64}
 
 ITEMS = {
     # Cargadores: deben coincidir con `magazine` en weapons.rs (lo comprueba check_sync_with_rust).
-    "pistol": gun(12),
+    "pistol": gun(17),
     "rifle": gun(30),
     "shotgun": gun(6),
-    "sniper": gun(5, rarity="rare"),
+    "sniper": gun(20, rarity="rare"),
+    "stg44": gun(30, rarity="rare"),
     "knife": {
         "template": "minecraft:iron_sword",
         "components": {
@@ -58,11 +59,12 @@ ITEMS = {
 HANDHELD = {"knife"}
 
 # Las armas de fuego tienen modelo 3D propio (tools/gun_models.py).
-GUNS = {"pistol", "rifle", "shotgun", "sniper"}
+GUNS = {"pistol", "rifle", "shotgun", "sniper", "stg44"}
 
 NAMES = {
     "es_mx": {
-        "pistol": "Pistola", "rifle": "Fusil", "shotgun": "Escopeta", "sniper": "Rifle de francotirador",
+        "pistol": "Glock 17", "rifle": "AK-74", "shotgun": "Escopeta", "sniper": "Mk 18 de largo alcance",
+        "stg44": "StG 44",
         "knife": "Cuchillo de combate", "grenade": "Granada",
         "ammo_pistol": "Balas de pistola", "ammo_rifle": "Balas de fusil", "shell": "Cartuchos de escopeta",
         "_tab": "Arsenal", "_entity_grenade": "Granada",
@@ -70,7 +72,8 @@ NAMES = {
         "_death_player": "%1$s fue abatido a tiros mientras huía de %2$s",
     },
     "en_us": {
-        "pistol": "Pistol", "rifle": "Rifle", "shotgun": "Shotgun", "sniper": "Sniper Rifle",
+        "pistol": "Glock 17", "rifle": "AK-74", "shotgun": "Shotgun", "sniper": "Mk 18 DMR",
+        "stg44": "StG 44",
         "knife": "Combat Knife", "grenade": "Grenade",
         "ammo_pistol": "Pistol Ammo", "ammo_rifle": "Rifle Ammo", "shell": "Shotgun Shells",
         "_tab": "Arsenal", "_entity_grenade": "Grenade",
@@ -88,6 +91,7 @@ SHAPED = {
     "rifle": (["III", "CCW"], {"I": I, "C": C, "W": W}, 1),
     "shotgun": (["III", "I W"], {"I": I, "W": W}, 1),
     "sniper": (["  S", "III", "CW "], {"S": "minecraft:spyglass", "I": I, "C": C, "W": W}, 1),
+    "stg44": (["III", "WCW"], {"I": I, "C": C, "W": W}, 1),
     "knife": (["I", "S"], {"I": I, "S": "minecraft:stick"}, 1),
     "grenade": ([" N ", "NGN", " N "], {"N": N, "G": G}, 4),
 }
@@ -313,7 +317,8 @@ def write_rig() -> None:
         rows.append(
             f'    Gun {{ item: "{NS}:{item}", feed: {feed}, grip: {f(e["grip"])}, fore: {f(e["fore"])}, '
             f'magwell: {f(e["magwell"])}, fp_rotation: {f(e["fp_rotation"])}, '
-            f'fp_translation: {f(e["fp_translation"])}, fp_scale: {e["fp_scale"]:.3f} }},')
+            f'fp_translation: {f(e["fp_translation"])}, fp_scale: {e["fp_scale"]:.3f}, '
+            f'sight: {f(e["sight"])}, scope: {"true" if e["scope"] else "false"} }},')
     table = "pub const GUNS: &[Gun] = &[\n" + "\n".join(rows) + "\n];\n"
     src = RIG_TEMPLATE.read_text(encoding="utf-8")
     marker = "// @GUNS@\n"
@@ -333,7 +338,7 @@ def main() -> None:
     (ROOT / "horizon-mod.toml").write_text(
         f'id = "{NS}"\n'
         'name = "Arsenal"\n'
-        'version = "0.2.1"\n'
+        'version = "0.3.0"\n'
         'description = "Armas de fuego, granadas y cuchillo para Horizon."\n'
         'authors = ["stwby"]\n'
         'api = "0.2"\n'

@@ -4,6 +4,28 @@
 /// Cliente → servidor: el jugador pulsó recargar. Sin datos.
 pub const RELOAD: &str = "arsenal:reload";
 
+/// Cliente → servidor: el gatillo (clic izquierdo con un arma) se pulsó (1) o se soltó (0).
+/// Mientras está pulsado, las armas automáticas siguen disparando.
+pub const TRIGGER: &str = "arsenal:trigger";
+
+/// Cliente → servidor: el jugador apunta (clic derecho mantenido) (1) o deja de apuntar (0).
+/// Apuntando, las armas dispersan menos.
+pub const AIM: &str = "arsenal:aim";
+
+/// Un interruptor de un byte (`TRIGGER`, `AIM`).
+pub fn encode_switch(on: bool) -> [u8; 1] {
+    [u8::from(on)]
+}
+
+/// `None` si no es exactamente un byte 0 o 1.
+pub fn decode_switch(data: &[u8]) -> Option<bool> {
+    match data {
+        [0] => Some(false),
+        [1] => Some(true),
+        _ => None,
+    }
+}
+
 /// Servidor → cliente: el jugador disparó. Un byte: el retroceso en décimas de grado.
 pub const FIRED: &str = "arsenal:fired";
 
@@ -63,6 +85,15 @@ mod tests {
         assert_eq!(decode_reload_start(&[1, 2, 3]), None);
         assert_eq!(decode_reload_stop(&encode_reload_stop(77)), Some(77));
         assert_eq!(decode_reload_stop(&[1]), None);
+    }
+
+    #[test]
+    fn switches_round_trip_and_reject_garbage() {
+        assert_eq!(decode_switch(&encode_switch(true)), Some(true));
+        assert_eq!(decode_switch(&encode_switch(false)), Some(false));
+        assert_eq!(decode_switch(&[2]), None);
+        assert_eq!(decode_switch(&[1, 1]), None);
+        assert_eq!(decode_switch(&[]), None);
     }
 
     #[test]

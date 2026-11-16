@@ -1,8 +1,9 @@
 {
-  "item.arsenal.pistol": "Pistol",
-  "item.arsenal.rifle": "Rifle",
+  "item.arsenal.pistol": "Glock 17",
+  "item.arsenal.rifle": "AK-74",
   "item.arsenal.shotgun": "Shotgun",
-  "item.arsenal.sniper": "Sniper Rifle",
+  "item.arsenal.sniper": "Mk 18 DMR",
+  "item.arsenal.stg44": "StG 44",
   "item.arsenal.knife": "Combat Knife",
   "item.arsenal.grenade": "Grenade",
   "item.arsenal.ammo_pistol": "Pistol Ammo",

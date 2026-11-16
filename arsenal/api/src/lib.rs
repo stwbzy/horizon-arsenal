@@ -16,16 +16,18 @@ mod client;
 mod server;
 
 use horizon_client::mod_api::{
-    CameraShakeEvent, ClientDisconnectingEvent, Flow, Hand, Hooks, Host, InventoryTickEvent,
-    ItemModelPropertyEvent, KeyEvent, LivingEntityUseItemStartEvent, LivingEntityUseItemTickEvent,
-    NetFromClientEvent, NetFromServerEvent, PlayerLoggedInEvent, PlayerLoggedOutEvent,
-    RenderHandEvent, RenderHandPoseEvent, Text, UseAnimation, UseAnimationEvent, UseDurationEvent,
+    CameraShakeEvent, ClientDisconnectingEvent, ClientTickPostEvent, Flow, GuiLayerPreEvent,
+    Hooks, Host, InteractionKeyEvent, InventoryTickEvent, ItemModelPropertyEvent, KeyEvent, MouseButtonPreEvent,
+    NativeZoom, NetFromClientEvent, NetFromServerEvent, PlayerLoggedInEvent,
+    PlayerLoggedOutEvent, RenderHandEvent, RenderHandPoseEvent, Text, UseAnimation,
+    UseAnimationEvent, UseDurationEvent, ZoomEvent,
 };
 
-/// Ticks que dura un "uso" de arma: de sobra para mantener el gatillo (como el catalejo).
+/// Ticks que duraría un "uso" de arma. El clic derecho ya no usa el arma (apunta, y el cliente
+/// se queda con el clic), pero si algo la usara igual (un mando), se queda quieta en la mano.
 const GUN_USE_TICKS: i32 = 72_000;
 
-fn is_gun(item: &str) -> bool {
+pub(crate) fn is_gun(item: &str) -> bool {
     weapons::by_item(item).is_some_and(|w| matches!(w.kind, weapons::Kind::Hitscan { .. }))
 }
 
@@ -45,7 +47,7 @@ struct Arsenal {
 impl Hooks for Arsenal {
     fn player_logged_in(&self, host: &mut dyn Host, event: &mut PlayerLoggedInEvent<'_>) {
         let line = format!(
-            "[Arsenal {}] cargado. Clic derecho: disparar (mantener = automático en el fusil) · R o agacharse + clic: recargar.",
+            "[Arsenal {}] cargado. Clic izquierdo: disparar (mantener = automático) · clic derecho mantenido: apuntar · R o agacharse + clic: recargar.",
             env!("CARGO_PKG_VERSION"),
         );
         host.tell(event.player, Text::literal(line));
@@ -56,9 +58,6 @@ impl Hooks for Arsenal {
     }
 
     // --- Servidor ---
-
-    // Las armas se "usan" mientras se mantiene el clic derecho, como un catalejo: así la mano no
-    // hace el balanceo de golpear, y el fuego automático sale de los ticks del uso.
 
     /// Ambos lados deben responder igual (el cliente predice el uso).
     fn use_duration(&self, _host: &dyn Host, event: &mut UseDurationEvent<'_>) {
@@ -74,40 +73,24 @@ impl Hooks for Arsenal {
         }
     }
 
-    fn living_entity_use_item_start(
-        &self,
-        host: &mut dyn Host,
-        event: &mut LivingEntityUseItemStartEvent<'_>,
-    ) -> Flow {
-        // Sólo jugadores (entity None), mano principal y en el servidor (no en la predicción).
-        if event.entity.is_none() && event.hand == Hand::Main && !host.window() {
-            self.server.trigger(host, event.stack, false);
-        }
-        Flow::Continue
-    }
-
-    fn living_entity_use_item_tick(
-        &self,
-        host: &mut dyn Host,
-        event: &mut LivingEntityUseItemTickEvent<'_>,
-    ) -> Flow {
-        if event.entity.is_none()
-            && event.hand == Hand::Main
-            && !host.window()
-            && is_gun(&event.stack.item)
-        {
-            self.server.trigger(host, event.stack, true);
-        }
-        Flow::Continue
-    }
-
     fn inventory_tick(&self, host: &mut dyn Host, event: &mut InventoryTickEvent) {
         self.server.inventory_tick(host, event);
     }
 
     fn net_from_client(&self, host: &mut dyn Host, event: &mut NetFromClientEvent<'_>) {
-        if event.channel == net::RELOAD {
-            self.server.reload_requested(host, event.player);
+        match event.channel {
+            net::RELOAD => self.server.reload_requested(host, event.player),
+            net::TRIGGER => {
+                if let Some(down) = net::decode_switch(event.data) {
+                    self.server.trigger_changed(event.player, down);
+                }
+            }
+            net::AIM => {
+                if let Some(on) = net::decode_switch(event.data) {
+                    self.server.aim_changed(event.player, on);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -115,6 +98,28 @@ impl Hooks for Arsenal {
 
     fn key(&self, host: &mut dyn Host, event: &mut KeyEvent<'_>) {
         self.client.key(host, event);
+    }
+
+    /// Con un arma en la mano: clic izquierdo dispara y clic derecho apunta (y ninguno llega al
+    /// juego: ni golpe, ni romper bloques, ni usar).
+    fn mouse_button_pre(&self, host: &mut dyn Host, event: &mut MouseButtonPreEvent) -> Flow {
+        self.client.mouse_button(host, event)
+    }
+
+    fn interaction_key(&self, host: &mut dyn Host, event: &mut InteractionKeyEvent<'_>) -> Flow {
+        self.client.interaction_key(host, event)
+    }
+
+    fn client_tick_post(&self, host: &mut dyn Host, _event: &mut ClientTickPostEvent) {
+        self.client.tick(host);
+    }
+
+    fn zoom(&self, host: &dyn Host, _event: &mut ZoomEvent) -> Option<NativeZoom> {
+        self.client.zoom(host)
+    }
+
+    fn gui_layer_pre(&self, host: &mut dyn Host, event: &mut GuiLayerPreEvent<'_>) -> Flow {
+        self.client.gui_layer_pre(host, event)
     }
 
     fn net_from_server(&self, _host: &mut dyn Host, event: &mut NetFromServerEvent<'_>) {
@@ -129,8 +134,8 @@ impl Hooks for Arsenal {
         self.client.render_hand_pose(event);
     }
 
-    fn render_hand(&self, _host: &dyn Host, event: &mut RenderHandEvent<'_>) -> Flow {
-        self.client.render_hand(event)
+    fn render_hand(&self, host: &dyn Host, event: &mut RenderHandEvent<'_>) -> Flow {
+        self.client.render_hand(host, event)
     }
 
     fn item_model_property(&self, _host: &dyn Host, event: &mut ItemModelPropertyEvent<'_>) {

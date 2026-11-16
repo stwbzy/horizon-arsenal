@@ -1,8 +1,9 @@
 {
-  "item.arsenal.pistol": "Pistola",
-  "item.arsenal.rifle": "Fusil",
+  "item.arsenal.pistol": "Glock 17",
+  "item.arsenal.rifle": "AK-74",
   "item.arsenal.shotgun": "Escopeta",
-  "item.arsenal.sniper": "Rifle de francotirador",
+  "item.arsenal.sniper": "Mk 18 de largo alcance",
+  "item.arsenal.stg44": "StG 44",
   "item.arsenal.knife": "Cuchillo de combate",
   "item.arsenal.grenade": "Granada",
   "item.arsenal.ammo_pistol": "Balas de pistola",
