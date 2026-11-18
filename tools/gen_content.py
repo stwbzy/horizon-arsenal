@@ -70,6 +70,9 @@ NAMES = {
         "_tab": "Arsenal", "_entity_grenade": "Granada",
         "_death": "%1$s fue abatido por %2$s", "_death_item": "%1$s fue abatido por %2$s con %3$s",
         "_death_player": "%1$s fue abatido a tiros mientras huía de %2$s",
+        "_key_reload": "Recargar", "_reloading": "Recargando…", "_no_ammo": "Sin munición",
+        "_ammo": "%1$s / %2$s   ·   reserva %3$s",
+        "_loaded": "[Arsenal %1$s] cargado. Clic izquierdo: disparar (mantener = automático) · clic derecho mantenido: apuntar · R o agacharse + clic: recargar.",
     },
     "en_us": {
         "pistol": "Glock 17", "rifle": "AK-74", "shotgun": "Shotgun", "sniper": "Mk 18 DMR",
@@ -79,6 +82,9 @@ NAMES = {
         "_tab": "Arsenal", "_entity_grenade": "Grenade",
         "_death": "%1$s was shot by %2$s", "_death_item": "%1$s was shot by %2$s using %3$s",
         "_death_player": "%1$s was shot while fleeing %2$s",
+        "_key_reload": "Reload", "_reloading": "Reloading…", "_no_ammo": "No ammo",
+        "_ammo": "%1$s / %2$s   ·   reserve %3$s",
+        "_loaded": "[Arsenal %1$s] loaded. Left click: fire (hold = automatic) · hold right click: aim · R or sneak + click: reload.",
     },
 }
 
@@ -253,7 +259,7 @@ def write_png(path: Path, rows) -> None:
 def check_sync_with_rust() -> None:
     """Cada arma de `weapons.rs` debe tener su ítem, y cada munición que nombra también."""
     import re
-    src = (ROOT.parent / "arsenal" / "api" / "src" / "weapons.rs").read_text(encoding="utf-8")
+    src = (ROOT.parent / "arsenal_core" / "src" / "weapons.rs").read_text(encoding="utf-8")
     weapons = re.findall(r'id: "([a-z0-9_]+)"', src)
     ammo = re.findall(r'ammo: Some\("([a-z0-9_]+)"\)', src)
     missing = sorted(set(weapons + ammo) - set(ITEMS))
@@ -302,11 +308,11 @@ def write_gun(assets: Path, item: str) -> None:
 
 
 RIG_TEMPLATE = ROOT.parent / "tools" / "rig_template.rs"
-RIG_OUT = ROOT.parent / "arsenal" / "rig.rs"
+RIG_OUT = ROOT.parent / "arsenal_core" / "src" / "rig.rs"
 
 
 def write_rig() -> None:
-    """arsenal/rig.rs: el módulo que la mezcla inserta en el motor (horizon_client::arsenal_rig).
+    """arsenal_core/src/rig.rs: el estado y los cálculos que comparten el mod y su mezcla fp_arms.
     Es la plantilla tools/rig_template.rs más la tabla de agarres de cada arma, sacada de los
     mismos modelos, para que las manos no se desalineen nunca del arma."""
     f = lambda v: "[" + ", ".join(f"{float(c):.3f}" for c in v) + "]"
@@ -338,7 +344,7 @@ def main() -> None:
     (ROOT / "horizon-mod.toml").write_text(
         f'id = "{NS}"\n'
         'name = "Arsenal"\n'
-        'version = "0.3.0"\n'
+        'version = "0.4.0"\n'
         'description = "Armas de fuego, granadas y cuchillo para Horizon."\n'
         'authors = ["stwby"]\n'
         'api = "0.2"\n'
@@ -393,6 +399,11 @@ def main() -> None:
         entries[f"death.attack.{NS}.bullet"] = names["_death"]
         entries[f"death.attack.{NS}.bullet.item"] = names["_death_item"]
         entries[f"death.attack.{NS}.bullet.player"] = names["_death_player"]
+        # Textos de arsenal_core (su tecla en Controles y la barra de acción).
+        entries["key.arsenal_core.reload"] = names["_key_reload"]
+        entries[f"key.categories.{NS}"] = names["_tab"]
+        for key in ("reloading", "no_ammo", "ammo", "loaded"):
+            entries[f"{NS}.{key}"] = names["_" + key]
         write_json(assets / "lang" / f"{lang}.json", entries)
 
     files = sum(1 for p in ROOT.rglob("*") if p.is_file())

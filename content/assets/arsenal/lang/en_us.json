@@ -13,5 +13,11 @@
   "entity.arsenal.grenade": "Grenade",
   "death.attack.arsenal.bullet": "%1$s was shot by %2$s",
   "death.attack.arsenal.bullet.item": "%1$s was shot by %2$s using %3$s",
-  "death.attack.arsenal.bullet.player": "%1$s was shot while fleeing %2$s"
+  "death.attack.arsenal.bullet.player": "%1$s was shot while fleeing %2$s",
+  "key.arsenal_core.reload": "Reload",
+  "key.categories.arsenal": "Arsenal",
+  "arsenal.reloading": "Reloading…",
+  "arsenal.no_ammo": "No ammo",
+  "arsenal.ammo": "%1$s / %2$s   ·   reserve %3$s",
+  "arsenal.loaded": "[Arsenal %1$s] loaded. Left click: fire (hold = automatic) · hold right click: aim · R or sneak + click: reload."
 }

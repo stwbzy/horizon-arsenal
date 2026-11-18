@@ -1,25 +1,30 @@
 //! Mitad cliente: gatillo (clic izquierdo), apuntar (clic derecho mantenido), tecla de recarga,
-//! retroceso de cámara y animaciones. Nada de aquí decide si un disparo o una recarga ocurren:
-//! el cliente avisa al servidor y reacciona a lo que este dice.
+//! retroceso de cámara, pose del arma y de los brazos. Nada de aquí decide si un disparo o una
+//! recarga ocurren: el cliente avisa al servidor y reacciona a lo que este dice.
 //!
-//! Los brazos los dibujan las inyecciones (`fp_arms`, `tp_arms`) leyendo el estado compartido
-//! `horizon_client::arsenal_rig`, que este lado alimenta con los mensajes del servidor.
+//! Los dos brazos en primera persona los dibuja la mezcla `src/mixins/fp_arms.rs`, que lee el
+//! estado compartido de `crate::rig` (recargas en curso, la pose que se le dio al arma).
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{LazyLock, Mutex};
 use std::time::Instant;
 
-use horizon_client::arsenal_rig as rig;
-use horizon_client::mod_api::{
-    CameraShakeEvent, Flow, GuiLayerPreEvent, Hand, Host, HudBatch, ItemModelPropertyEvent, KeyEvent,
-    InteractionKeyEvent, MouseButtonPreEvent, NativeZoom, NetFromServerEvent, RenderHandEvent, RenderHandPoseEvent,
+use mod_api::{
+    ArmPose, CameraShakeEvent, ClientHost, DrawContext, Flow, GetArmPoseEvent,
+    GuiLayerPreEvent, Hand, InteractionKey, InteractionKeyMappingTriggeredEvent,
+    ItemModelPropertyEvent, ItemStack, KeyRegistration, MouseButtonPreEvent, Registrar,
+    RenderHandEvent, Zoom,
 };
 
-use crate::{net, weapons};
+use crate::net::{Aim, Reload, Trigger};
+use crate::{rig, weapons};
 
 /// Botones del ratón (los de GLFW).
 const LEFT: i32 = 0;
 const RIGHT: i32 = 1;
+
+/// La tecla de recarga, en Controles (`key.arsenal_core.reload`).
+const RELOAD_KEY: &str = "reload";
 
 /// Apuntando con mira telescópica, a partir de aquí se ve la retícula en vez del arma.
 const SCOPE_FROM: f32 = 0.92;
@@ -37,6 +42,21 @@ const KICK_DECAY_S: f32 = 0.12;
 /// Propiedades del modelo de las armas (ver `write_gun` en tools/gen_content.py).
 const MAG_ONLY: &str = "arsenal:mag_only";
 const MAG_OUT: &str = "arsenal:mag_out";
+
+static CLIENT: LazyLock<Client> = LazyLock::new(Client::default);
+
+/// El estado del cliente. Los manejadores de red no reciben el objeto del mod: lo comparten así.
+pub fn get() -> &'static Client {
+    &CLIENT
+}
+
+/// Lo que el cliente declara en `Hooks::register`: la tecla de recarga.
+pub fn register(r: &mut dyn Registrar) {
+    let mut reload = KeyRegistration::new(RELOAD_KEY, "key.keyboard.r");
+    reload.label = format!("key.{}.reload", crate::MOD_ID);
+    reload.category = format!("key.categories.{}", crate::NAMESPACE);
+    r.register_key_mapping(reload);
+}
 
 #[derive(Default)]
 pub struct Client {
@@ -66,51 +86,36 @@ struct Input {
 
 impl Input {
     fn aiming(&self) -> bool {
-        self.aim_mouse
-            || self.use_seen.is_some_and(|t| t.elapsed().as_secs_f32() < USE_HELD_S)
+        self.aim_mouse || self.use_seen.is_some_and(|t| t.elapsed().as_secs_f32() < USE_HELD_S)
     }
+}
+
+/// El id de un stack (`arsenal:pistol`).
+fn item_id(host: &dyn ClientHost, stack: &ItemStack) -> String {
+    stack.item().id(host)
 }
 
 /// El arma de fuego en la mano principal del jugador de esta ventana.
-fn held_gun(host: &dyn Host) -> Option<&'static weapons::Weapon> {
-    let (item, _, _) = host.held()?;
+fn held_gun(host: &dyn ClientHost) -> Option<&'static weapons::Weapon> {
+    let player = host.local_player()?;
+    let stack = host.living(player.entity())?.hand_item(host, Hand::Main)?;
+    let item = item_id(host, &stack);
     weapons::by_item(&item).filter(|_| crate::is_gun(&item))
 }
 
-impl Client {
-    pub fn key(&self, host: &mut dyn Host, event: &KeyEvent<'_>) {
-        if !event.pressed || !host.playing() {
-            return;
-        }
-        let reload = host.mod_key(crate::NAMESPACE, "reload", "key.keyboard.r");
-        if event.key == reload {
-            // Error en servidores sin el mod o antes de entrar: no hay nada que hacer.
-            let _ = host.net_send_to_server(net::RELOAD, &[]);
-        }
+fn send_trigger(host: &mut dyn ClientHost, down: bool) {
+    if let Some(channels) = crate::net::channels() {
+        // Error en servidores sin el mod o antes de entrar: no hay nada que hacer.
+        let _ = channels.trigger.send(host, &Trigger { down });
     }
+}
 
-    pub fn net_from_server(&self, event: &NetFromServerEvent<'_>) {
-        match event.channel {
-            net::FIRED => {
-                if let Some(deg) = net::decode_fired(event.data)
-                    && let Ok(mut recoil) = self.recoil.lock()
-                {
-                    // Disparos seguidos se acumulan un poco, con tope.
-                    let left = recoil.map_or(0.0, |(d, at)| current(d, at));
-                    *recoil = Some(((left + deg).min(8.0), Instant::now()));
-                }
-            }
-            net::RELOAD_START => {
-                if let Some(m) = net::decode_reload_start(event.data) {
-                    rig::start_reload(m.entity, m.local, u32::from(m.ticks));
-                }
-            }
-            net::RELOAD_STOP => {
-                if let Some(entity) = net::decode_reload_stop(event.data) {
-                    rig::cancel_reload(entity);
-                }
-            }
-            _ => {}
+impl Client {
+    /// El servidor confirmó un disparo: retroceso. Disparos seguidos se acumulan un poco, con tope.
+    pub fn fired(&self, deg: f32) {
+        if let Ok(mut recoil) = self.recoil.lock() {
+            let left = recoil.map_or(0.0, |(d, at)| current(d, at));
+            *recoil = Some(((left + deg).min(8.0), Instant::now()));
         }
     }
 
@@ -130,14 +135,15 @@ impl Client {
     /// Clic izquierdo: gatillo; clic derecho mantenido: apuntar. Con un arma en la mano el
     /// juego no ve estos clics (ni golpea, ni rompe bloques, ni usa el ítem); sin arma, todo
     /// sigue como siempre.
-    pub fn mouse_button(&self, host: &mut dyn Host, event: &MouseButtonPreEvent) -> Flow {
+    pub fn mouse_button(&self, host: &mut dyn ClientHost, event: &MouseButtonPreEvent) -> Flow {
         if event.button != LEFT && event.button != RIGHT {
             return Flow::Continue;
         }
+        let playing = host.playing() && held_gun(host).is_some();
         let Ok(mut input) = self.input.lock() else { return Flow::Continue };
         let state = if event.button == LEFT { &mut input.trigger } else { &mut input.aim_mouse };
         if event.pressed {
-            if !host.playing() || held_gun(host).is_none() {
+            if !playing {
                 return Flow::Continue;
             }
             *state = true;
@@ -146,29 +152,32 @@ impl Client {
         } else {
             return Flow::Continue;
         }
-        // El gatillo va al momento; apuntar se sincroniza en `tick`. Error en servidores sin el
-        // mod: no hay nada que hacer.
+        drop(input);
+        // El gatillo va al momento; apuntar se sincroniza en `tick`.
         if event.button == LEFT {
-            let _ = host.net_send_to_server(net::TRIGGER, &net::encode_switch(event.pressed));
+            send_trigger(host, event.pressed);
         }
         Flow::Cancel
     }
 
     /// Atacar / usar sin pasar por el ratón (mando, control remoto, teclas reasignadas): con un
     /// arma, "atacar" es un disparo y "usar" mantenido es apuntar. Nunca llegan al juego.
-    pub fn interaction_key(&self, host: &mut dyn Host, event: &mut InteractionKeyEvent<'_>) -> Flow {
+    pub fn interaction_key(
+        &self,
+        host: &mut dyn ClientHost,
+        event: &mut InteractionKeyMappingTriggeredEvent,
+    ) -> Flow {
         if event.hand != Hand::Main || held_gun(host).is_none() {
             return Flow::Continue;
         }
         event.swing_hand = false;
-        match event.button {
-            0 => {
+        match event.key {
+            InteractionKey::Attack => {
                 // Sólo se oye la pulsación: un disparo (el automático necesita el ratón).
-                for down in [true, false] {
-                    let _ = host.net_send_to_server(net::TRIGGER, &net::encode_switch(down));
-                }
+                send_trigger(host, true);
+                send_trigger(host, false);
             }
-            1 => {
+            InteractionKey::Use => {
                 if let Ok(mut input) = self.input.lock() {
                     input.use_seen = Some(Instant::now());
                 }
@@ -178,22 +187,33 @@ impl Client {
         Flow::Cancel
     }
 
-    /// Cada tick: si se abre una pantalla o se cambia de ítem con un botón pulsado, se suelta.
-    pub fn tick(&self, host: &mut dyn Host) {
+    /// Cada tick: la tecla de recarga, y si se abre una pantalla o se cambia de ítem con un
+    /// botón pulsado, se suelta.
+    pub fn tick(&self, host: &mut dyn ClientHost) {
+        let reload = host.consume_click(crate::MOD_ID, RELOAD_KEY);
         let keep = host.playing() && held_gun(host).is_some();
+        if reload
+            && keep
+            && let Some(channels) = crate::net::channels()
+        {
+            let _ = channels.reload.send(host, &Reload { reserved: 0 });
+        }
         let Ok(mut input) = self.input.lock() else { return };
+        let release_trigger = !keep && input.trigger;
         if !keep {
-            if input.trigger {
-                let _ = host.net_send_to_server(net::TRIGGER, &net::encode_switch(false));
-            }
             input.trigger = false;
             input.aim_mouse = false;
             input.use_seen = None;
         }
         let aiming = input.aiming();
-        if aiming != input.aim_sent {
-            input.aim_sent = aiming;
-            let _ = host.net_send_to_server(net::AIM, &net::encode_switch(aiming));
+        let aim_changed = aiming != input.aim_sent;
+        input.aim_sent = aiming;
+        drop(input);
+        if release_trigger {
+            send_trigger(host, false);
+        }
+        if aim_changed && let Some(channels) = crate::net::channels() {
+            let _ = channels.aim.send(host, &Aim { on: aiming });
         }
     }
 
@@ -219,8 +239,14 @@ impl Client {
             .is_some_and(|t| t.elapsed().as_secs_f32() < FIRST_PERSON_FRESH_S)
     }
 
+    fn seen_in_first_person(&self) {
+        if let Ok(mut seen) = self.first_person.lock() {
+            *seen = Some(Instant::now());
+        }
+    }
+
     /// Mirando por una mira telescópica (se ve la retícula y no el arma).
-    fn scoped(&self, host: &dyn Host) -> bool {
+    fn scoped(&self, host: &dyn ClientHost) -> bool {
         held_gun(host)
             .and_then(|w| rig::gun(&format!("{}:{}", crate::NAMESPACE, w.id)))
             .is_some_and(|g| g.scope)
@@ -229,23 +255,23 @@ impl Client {
     }
 
     /// Zoom al apuntar, suave como el del catalejo; el ratón gira más despacio con más zoom.
-    pub fn zoom(&self, host: &dyn Host) -> Option<NativeZoom> {
+    pub fn zoom(&self, host: &dyn ClientHost) -> Option<Zoom> {
         let weapon = held_gun(host)?;
         let aiming = self.input.lock().is_ok_and(|i| i.aiming()) && rig::local_progress().is_none();
         if !aiming || !self.in_first_person() || weapon.ads_fov >= 1.0 {
             return None;
         }
-        Some(NativeZoom { factor: 1.0 / weapon.ads_fov, smooth: true, turn: weapon.ads_fov.max(0.25) })
+        Some(Zoom { factor: 1.0 / weapon.ads_fov, smooth: true, turn: weapon.ads_fov.max(0.25) })
     }
 
     /// Apuntando no se dibuja la cruz (se apunta con las miras del arma); con mira telescópica,
     /// en su lugar va la retícula.
-    pub fn gui_layer_pre(&self, host: &mut dyn Host, event: &mut GuiLayerPreEvent<'_>) -> Flow {
+    pub fn gui_layer_pre(&self, host: &dyn ClientHost, event: &mut GuiLayerPreEvent<'_>) -> Flow {
         if event.layer != "minecraft:crosshair" || held_gun(host).is_none() || !self.in_first_person() {
             return Flow::Continue;
         }
         if self.scoped(host) {
-            draw_scope(host, event);
+            draw_scope(event.draw);
             return Flow::Cancel;
         }
         if rig::aim_ease(self.aim_progress()) > 0.5 { Flow::Cancel } else { Flow::Continue }
@@ -263,23 +289,31 @@ impl Client {
         event.shake.pitch -= now;
     }
 
-    /// Con un arma en la mano principal, la otra mano la sujeta: no se dibuja lo que lleve.
+    /// Cada mano en primera persona. Con un arma en la mano principal: su pose (cadera o mira,
+    /// culatazo, giro de recarga), y la otra mano la sujeta, así que no se dibuja lo que lleve.
     /// Mirando por una mira telescópica no se dibuja nada (sólo la retícula).
-    pub fn render_hand(&self, host: &dyn Host, event: &RenderHandEvent<'_>) -> Flow {
-        let gun = event.stack.is_some_and(|s| rig::gun(&s.item).is_some());
-        if gun && self.scoped(host) {
-            if event.hand == Hand::Main {
-                self.gun_in_main_hand.store(true, Ordering::Relaxed);
-                // Sigue contando como primera persona aunque el arma no se dibuje.
-                if let Ok(mut seen) = self.first_person.lock() {
-                    *seen = Some(Instant::now());
-                }
-            }
-            return Flow::Cancel;
-        }
-        match event.hand {
+    pub fn render_hand(&self, host: &dyn ClientHost, event: &mut RenderHandEvent<'_, '_>) -> Flow {
+        let render = &mut *event.render;
+        let gun = render.stack.and_then(|s| rig::gun(&item_id(host, s)));
+        match render.hand {
             Hand::Main => {
-                self.gun_in_main_hand.store(gun, Ordering::Relaxed);
+                self.gun_in_main_hand.store(gun.is_some(), Ordering::Relaxed);
+                let Some(gun) = gun else {
+                    rig::set_main_hand_pose(None);
+                    return Flow::Continue;
+                };
+                // Sigue contando como primera persona aunque el arma no se dibuje.
+                self.seen_in_first_person();
+                if self.scoped(host) {
+                    rig::set_main_hand_pose(None);
+                    return Flow::Cancel;
+                }
+                self.pose_gun(gun, render);
+                rig::set_main_hand_pose(Some(rig::HandPose {
+                    translation: render.translation,
+                    rotation: render.rotation,
+                    scale: render.scale,
+                }));
                 Flow::Continue
             }
             Hand::Off if self.gun_in_main_hand.load(Ordering::Relaxed) => Flow::Cancel,
@@ -287,13 +321,60 @@ impl Client {
         }
     }
 
+    /// El arma en primera persona: a la cadera o apuntando (y la transición), culatazo al
+    /// disparar y giro durante la recarga. Las manos (mezcla `fp_arms`) leen esta misma pose de
+    /// `rig::main_hand_pose`, así que siguen al arma.
+    fn pose_gun(&self, gun: &rig::Gun, render: &mut mod_api::HandRender<'_>) {
+        let tune = rig::tune();
+        let left = rig::left_handed();
+        // Todo se piensa para la mano derecha; con la izquierda se espeja en x (y los giros
+        // que no son pitch).
+        let f = if left { -1.0 } else { 1.0 };
+        render.scale *= tune.gun_scale;
+        // De la cadera a la mira: la pose de apuntar sale de los datos del modelo (rig).
+        let a = rig::aim_ease(self.aim_progress());
+        let hip = [f * tune.gun_offset[0], tune.gun_offset[1], tune.gun_offset[2], 0.0];
+        let ads = rig::aim_pose(gun, left, render.scale, &tune);
+        let mix = |i: usize| hip[i] + (ads[i] - hip[i]) * a;
+        let [x, y, z] = &mut render.translation;
+        let [pitch, yaw, roll] = &mut render.rotation;
+        *x += mix(0);
+        *y += mix(1);
+        *z += mix(2);
+        *yaw += mix(3);
+        if let Some(t) = rig::local_progress() {
+            let [dx, dy, dz, dpitch, dyaw, droll] = rig::reload_pose(gun.feed, t).gun;
+            let (dx, dyaw, droll) = (f * dx, f * dyaw, f * droll);
+            // La pose de la mano gira alrededor de la cámara: se compensa para que el arma gire
+            // sobre sí misma (T(P) · R · T(-P) = T(P - R·P) · R).
+            let p = [f * RELOAD_PIVOT[0], RELOAD_PIVOT[1], RELOAD_PIVOT[2]];
+            let r = rotate(p, dpitch, dyaw, droll);
+            *x += dx + p[0] - r[0];
+            *y += dy + p[1] - r[1];
+            *z += dz + p[2] - r[2];
+            *pitch += dpitch;
+            *yaw += dyaw;
+            *roll += droll;
+        }
+        let Ok(recoil) = self.recoil.lock() else { return };
+        let Some((deg, at)) = *recoil else { return };
+        // Apuntando, el arma está pegada al hombro: patea menos.
+        let k = (deg / 2.0).min(2.0) * (-at.elapsed().as_secs_f32() / KICK_DECAY_S).exp() * (1.0 - 0.6 * a);
+        if k < 0.01 {
+            return;
+        }
+        *z += 0.12 * k; // hacia la cámara
+        *y += 0.02 * k;
+        *pitch += 6.0 * k; // la boca del cañón sube
+    }
+
     /// Variante del modelo del arma en primera persona: sólo el cargador (lo que lleva la mano
     /// de apoyo) o el arma sin él, según el momento de la recarga.
-    pub fn item_model_property(&self, event: &mut ItemModelPropertyEvent<'_>) {
+    pub fn item_model_property(&self, host: &dyn ClientHost, event: &mut ItemModelPropertyEvent<'_>) {
         match event.property {
             MAG_ONLY => event.value = rig::drawing_magazine(),
             MAG_OUT => {
-                event.value = rig::gun(&event.stack.item)
+                event.value = rig::gun(&item_id(host, event.stack))
                     .zip(rig::local_progress())
                     .is_some_and(|(gun, t)| !rig::reload_pose(gun.feed, t).mag_attached);
             }
@@ -301,95 +382,55 @@ impl Client {
         }
     }
 
-    /// El arma en primera persona: a la cadera o apuntando (y la transición), culatazo al
-    /// disparar y giro durante la recarga. Las manos (inyección `fp_arms`) piden esta misma
-    /// pose, así que siguen al arma.
-    pub fn render_hand_pose(&self, event: &mut RenderHandPoseEvent<'_>) {
-        if event.hand != Hand::Main {
-            return;
+    /// Tercera persona (los demás jugadores y el propio en F5): un arma se sostiene con las dos
+    /// manos hacia donde se mira (la pose del arco), y durante la recarga la de apoyo tira del
+    /// cargador (la de cargar la ballesta).
+    pub fn arm_pose(&self, host: &dyn ClientHost, event: &GetArmPoseEvent<'_>) -> Option<ArmPose> {
+        if event.hand != Hand::Main || rig::gun(&item_id(host, event.stack)).is_none() {
+            return None;
         }
-        let Some(gun) = event.stack.and_then(|s| rig::gun(&s.item)) else { return };
-        if let Ok(mut seen) = self.first_person.lock() {
-            *seen = Some(Instant::now());
-        }
-        let tune = rig::tune();
-        let left = rig::left_handed();
-        // Todo se piensa para la mano derecha; con la izquierda se espeja en x (y los giros
-        // que no son pitch).
-        let f = if left { -1.0 } else { 1.0 };
-        event.scale *= tune.gun_scale;
-        // De la cadera a la mira: la pose de apuntar sale de los datos del modelo (rig).
-        let a = rig::aim_ease(self.aim_progress());
-        let hip = [f * tune.gun_offset[0], tune.gun_offset[1], tune.gun_offset[2], 0.0];
-        let ads = rig::aim_pose(gun, left, event.scale, &tune);
-        let mix = |i: usize| hip[i] + (ads[i] - hip[i]) * a;
-        event.x += mix(0);
-        event.y += mix(1);
-        event.z += mix(2);
-        event.yaw += mix(3);
-        if let Some(t) = rig::local_progress() {
-            let [x, y, z, pitch, yaw, roll] = rig::reload_pose(gun.feed, t).gun;
-            let (x, yaw, roll) = (f * x, f * yaw, f * roll);
-            // render_hand_pose gira alrededor de la cámara: se compensa para que el arma gire
-            // sobre sí misma (T(P) · R · T(-P) = T(P - R·P) · R).
-            let p = [f * RELOAD_PIVOT[0], RELOAD_PIVOT[1], RELOAD_PIVOT[2]];
-            let r = rotate(p, pitch, yaw, roll);
-            event.x += x + p[0] - r[0];
-            event.y += y + p[1] - r[1];
-            event.z += z + p[2] - r[2];
-            event.pitch += pitch;
-            event.yaw += yaw;
-            event.roll += roll;
-        }
-        let Ok(recoil) = self.recoil.lock() else { return };
-        let Some((deg, at)) = *recoil else { return };
-        // Apuntando, el arma está pegada al hombro: patea menos.
-        let k = (deg / 2.0).min(2.0)
-            * (-at.elapsed().as_secs_f32() / KICK_DECAY_S).exp()
-            * (1.0 - 0.6 * a);
-        if k < 0.01 {
-            return;
-        }
-        event.z += 0.12 * k; // hacia la cámara
-        event.y += 0.02 * k;
-        event.pitch += 6.0 * k; // la boca del cañón sube
+        Some(if rig::entity_progress(event.entity_id as i32).is_some() {
+            ArmPose::CrossbowCharge
+        } else {
+            ArmPose::Bow
+        })
     }
 }
 
 /// La retícula de la mira telescópica: todo negro salvo un círculo con un borde que oscurece,
 /// y una cruz fina con el centro más grueso.
-fn draw_scope(host: &dyn Host, event: &mut GuiLayerPreEvent<'_>) {
+fn draw_scope(draw: &mut dyn DrawContext) {
     const BLACK: u32 = 0xFF00_0000;
     const SEGMENTS: usize = 72;
-    let (w, h) = (event.batch.width, event.batch.height);
+    let [w, h] = draw.size();
     let (cx, cy) = (w / 2.0, h / 2.0);
     let r = 0.46 * w.min(h);
     let far = w.hypot(h);
-    let ring = |inner: f32, outer: f32, argb: u32, batch: &mut HudBatch| {
+    let ring = |draw: &mut dyn DrawContext, inner: f32, outer: f32, argb: u32| {
         for i in 0..SEGMENTS {
             let a0 = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
             let a1 = (i + 1) as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
             let at = |rad: f32, a: f32| [cx + rad * a.cos(), cy + rad * a.sin()];
-            host.quad(batch, [at(inner, a0), at(outer, a0), at(outer, a1), at(inner, a1)], argb);
+            draw.quad([at(inner, a0), at(outer, a0), at(outer, a1), at(inner, a1)], argb);
         }
     };
-    ring(r, far, BLACK, &mut *event.batch);
-    ring(r * 0.9, r, 0x7000_0000, &mut *event.batch);
+    ring(draw, r, far, BLACK);
+    ring(draw, r * 0.9, r, 0x7000_0000);
     let thin = (h / 400.0).max(0.5);
-    host.fill(event.batch, [cx - r, cy - thin / 2.0, 2.0 * r, thin], BLACK);
-    host.fill(event.batch, [cx - thin / 2.0, cy - r, thin, 2.0 * r], BLACK);
+    draw.fill([cx - r, cy - thin / 2.0, 2.0 * r, thin], BLACK);
+    draw.fill([cx - thin / 2.0, cy - r, thin, 2.0 * r], BLACK);
     // Postes gruesos desde el borde hasta cerca del centro (como una retícula duplex).
     let thick = thin * 3.0;
     let gap = r * 0.3;
-    host.fill(event.batch, [cx - r, cy - thick / 2.0, r - gap, thick], BLACK);
-    host.fill(event.batch, [cx + gap, cy - thick / 2.0, r - gap, thick], BLACK);
-    host.fill(event.batch, [cx - thick / 2.0, cy + gap, thick, r - gap], BLACK);
+    draw.fill([cx - r, cy - thick / 2.0, r - gap, thick], BLACK);
+    draw.fill([cx + gap, cy - thick / 2.0, r - gap, thick], BLACK);
+    draw.fill([cx - thick / 2.0, cy + gap, thick, r - gap], BLACK);
 }
 
 /// Centro del arma en la vista (bloques), sobre el que gira durante la recarga.
 const RELOAD_PIVOT: [f32; 3] = [0.3, -0.42, -0.85];
 
-/// `v` girado como lo gira `hand_pose_matrix`: Rx(pitch) · Ry(yaw) · Rz(roll), en grados.
+/// `v` girado como lo gira la pose de la mano: Rx(pitch) · Ry(yaw) · Rz(roll), en grados.
 fn rotate(v: [f32; 3], pitch: f32, yaw: f32, roll: f32) -> [f32; 3] {
     let (sz, cz) = roll.to_radians().sin_cos();
     let [x, y, z] = [v[0] * cz - v[1] * sz, v[0] * sz + v[1] * cz, v[2]];

@@ -13,5 +13,11 @@
   "entity.arsenal.grenade": "Granada",
   "death.attack.arsenal.bullet": "%1$s fue abatido por %2$s",
   "death.attack.arsenal.bullet.item": "%1$s fue abatido por %2$s con %3$s",
-  "death.attack.arsenal.bullet.player": "%1$s fue abatido a tiros mientras huía de %2$s"
+  "death.attack.arsenal.bullet.player": "%1$s fue abatido a tiros mientras huía de %2$s",
+  "key.arsenal_core.reload": "Recargar",
+  "key.categories.arsenal": "Arsenal",
+  "arsenal.reloading": "Recargando…",
+  "arsenal.no_ammo": "Sin munición",
+  "arsenal.ammo": "%1$s / %2$s   ·   reserva %3$s",
+  "arsenal.loaded": "[Arsenal %1$s] cargado. Clic izquierdo: disparar (mantener = automático) · clic derecho mantenido: apuntar · R o agacharse + clic: recargar."
 }

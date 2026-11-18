@@ -1,6 +1,6 @@
 # Ficha 1: Arsenal (arsenal_core, native-mod)
 
-- Archivo: dist/arsenal_core.hnmod · id `arsenal_core` · versión 0.2.1 · Minecraft 26.3
+- Archivo: dist/arsenal_core.hmod · id `arsenal_core` · versión 0.4.0 (mod nativo .hmod) · Minecraft 26.3
 - Nombre: Arsenal
 - Licencia: MIT · Autor: stwby · Código: https://github.com/stwbzy/horizon-arsenal
 - Categorías: Equipment, Game mechanics

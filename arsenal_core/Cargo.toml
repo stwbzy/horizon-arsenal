@@ -1,0 +1,12 @@
+[package]
+name = "arsenal-core"
+# La versión del mod es la de horizon-mod.toml; ésta es sólo la del crate.
+version = "0.4.0"
+license = "MIT"
+edition = "2024"
+
+[dependencies]
+# El crate de la API del SDK fijado en [native] horizon: cualquier `cargo horizon-mod` lo trae a
+# .horizon/sdk/ (y el launcher compila contra su propia copia de la misma build). No depende del
+# juego: lo que necesita sus tipos va en las mezclas de src/mixins/.
+horizon-mod-api = { path = ".horizon/sdk/api/crates/horizon-mod-api" }

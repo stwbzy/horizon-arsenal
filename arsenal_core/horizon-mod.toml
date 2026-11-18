@@ -1,0 +1,37 @@
+id = "arsenal_core"
+name = "Arsenal"
+version = "0.4.0"
+description = "La parte nativa de Arsenal: disparo, munición, recarga, apuntar, retroceso y los brazos a dos manos. Necesita el mod de contenido Arsenal (assets)."
+authors = ["stwby"]
+license = "MIT"
+homepage = "https://github.com/stwbzy/horizon-arsenal"
+issues = "https://github.com/stwbzy/horizon-arsenal/issues"
+# Mod nativo: el Rust de src/, que el launcher compila contra la build del juego que fija [native].
+api = "0.2"
+side = "both"
+capabilities = ["registries"]
+
+[dependencies]
+# Los ítems, modelos, texturas, recetas y textos (namespace `arsenal`).
+arsenal = { version = "^0.4", reason = "Los ítems, modelos y textos de las armas", url = "https://playhorizon.dev/mods/arsenal" }
+
+# La build del juego para la que se compila. PENDIENTE: el commit de main de abajo aún no tiene SDK
+# publicado; al salir la próxima Nightly, `cargo horizon-mod update` lo mueve a ella.
+[native]
+game = "26.3"
+horizon = "c85b32e3056322cd1dfd3749b98096476ae3d42b"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
+
+# Primera persona: los dos brazos sobre el arma. Ningún hook dibuja brazos, y hand_geometry es
+# demasiado grande para una mezcla; item_activation_geometry recibe la geometría de la mano recién
+# hecha (&mut hand) justo después, en cada frame en que hay mano.
+[[native.mixin]]
+id = "fp_arms"
+target = "horizon_client::game::totem::Game<'_>::item_activation_geometry"
+kind = "HEAD"
+helper = "src/mixins/fp_arms.rs"
+bindings = [
+  { name = "game", ty = "&Game<'_>", value = "&*self" },
+  { name = "partial", ty = "f32", value = "partial" },
+  { name = "out", ty = "&mut Vec<Vertex>", value = "&mut *out" },
+]

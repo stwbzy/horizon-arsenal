@@ -1,9 +1,9 @@
-// Arsenal dentro del motor (`horizon_client::arsenal_rig`): lo que comparten el mod (crate
-// `mod-arsenal`) y sus dos inyecciones, `fp_arms` (los dos brazos en primera persona) y
-// `tp_arms` (la pose de arco en tercera persona).
+// Lo que comparten el mod (`arsenal_core::rig`) y su mezcla `fp_arms` (src/mixins/fp_arms.rs,
+// los dos brazos en primera persona), que lo llama por la ruta del crate. La mezcla puede llamar
+// al crate del mod, pero no al revés: por eso el estado vive aquí y no dentro del juego.
 //
 // Sólo usa `std`, para que su lógica se pruebe sin el juego:
-// `rustc --edition 2024 --test arsenal/rig.rs -o /tmp/t && /tmp/t`.
+// `rustc --edition 2024 --test arsenal_core/src/rig.rs -o /tmp/t && /tmp/t`.
 
 use std::cell::Cell;
 use std::f32::consts::FRAC_PI_2;
@@ -51,7 +51,7 @@ pub fn gun(item: &str) -> Option<&'static Gun> {
 // --- Recargas en curso -------------------------------------------------------------------------
 
 struct Reload {
-    entity: u32,
+    entity: i32,
     /// La del jugador de esta ventana (la que se ve en primera persona).
     local: bool,
     start: Instant,
@@ -61,7 +61,7 @@ struct Reload {
 static RELOADS: Mutex<Vec<Reload>> = Mutex::new(Vec::new());
 
 /// El servidor avisó de que `entity` empezó a recargar durante `ticks`.
-pub fn start_reload(entity: u32, local: bool, ticks: u32) {
+pub fn start_reload(entity: i32, local: bool, ticks: u32) {
     let Ok(mut all) = RELOADS.lock() else { return };
     all.retain(|r| r.entity != entity && !(local && r.local));
     all.push(Reload {
@@ -73,7 +73,7 @@ pub fn start_reload(entity: u32, local: bool, ticks: u32) {
 }
 
 /// Recarga cortada (cambió de ítem) o terminada antes de tiempo.
-pub fn cancel_reload(entity: u32) {
+pub fn cancel_reload(entity: i32) {
     if let Ok(mut all) = RELOADS.lock() {
         all.retain(|r| r.entity != entity);
     }
@@ -99,7 +99,7 @@ pub fn local_progress() -> Option<f32> {
 }
 
 /// Cuánto lleva (0..1) la recarga de la entidad `entity`.
-pub fn entity_progress(entity: u32) -> Option<f32> {
+pub fn entity_progress(entity: i32) -> Option<f32> {
     progress(|r| r.entity == entity)
 }
 
@@ -269,6 +269,31 @@ pub fn left_handed() -> bool {
     LEFT_HANDED.load(Ordering::Relaxed)
 }
 
+// --- La pose del arma en la mano ---------------------------------------------------------------
+
+/// La pose que el hook `render_hand` le dio a la mano principal con un arma este frame:
+/// traslación en bloques y giros en grados, como `HandRender`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HandPose {
+    pub translation: [f32; 3],
+    pub rotation: [f32; 3],
+    pub scale: f32,
+}
+
+static MAIN_HAND_POSE: Mutex<Option<HandPose>> = Mutex::new(None);
+
+/// La apunta el mod en `render_hand`, justo antes de que el juego dibuje la mano.
+pub fn set_main_hand_pose(pose: Option<HandPose>) {
+    if let Ok(mut p) = MAIN_HAND_POSE.lock() {
+        *p = pose;
+    }
+}
+
+/// La lee `fp_arms` en el mismo frame, para poner las manos sobre el arma ya movida.
+pub fn main_hand_pose() -> Option<HandPose> {
+    MAIN_HAND_POSE.lock().ok().and_then(|p| *p)
+}
+
 // --- Dibujar sólo el cargador ------------------------------------------------------------------
 
 thread_local! {
@@ -290,7 +315,7 @@ pub fn set_drawing_magazine(on: bool) {
 /// Cómo está todo en un instante de la recarga.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct ReloadPose {
-    /// Movimiento del arma en primera persona, como `render_hand_pose`: x, y, z en bloques,
+    /// Movimiento del arma en primera persona, como la pose de `HandRender`: x, y, z en bloques,
     /// pitch, yaw, roll en grados.
     pub gun: [f32; 6],
     /// 0 = mano de apoyo en su sitio (`fore`), 1 = en el pozo del cargador (`magwell`).

@@ -1,6 +1,6 @@
 # Ficha 2: Arsenal (assets) (arsenal, mod)
 
-- Archivo: dist/arsenal.hmod · id `arsenal` · versión 0.2.1 · Minecraft 26.3
+- Archivo: dist/arsenal.hmod · id `arsenal` · versión 0.4.0 · Minecraft 26.3
 - Nombre: Arsenal (assets)
 - Licencia: MIT · Autor: stwby · Código: https://github.com/stwbzy/horizon-arsenal
 - Categorías: Equipment, Library (la lista de `mod` incluye Library)

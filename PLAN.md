@@ -225,3 +225,31 @@ izquierdo. Sólo en local: sin push ni release, sin tocar la instancia principal
 - Clic izquierdo real (ratón) y simulado: dispara y gasta munición. Recarga con R. Sin panics.
 - No probado: mantener el clic izquierdo con el ratón real para el automático (las herramientas
   sólo hacen clics cortos); la lógica es la misma del fuego automático anterior.
+
+## 0.4.0: paso al `.hmod` nativo (rama `hmod-nativo`)
+
+El registro rechazó `arsenal_core` 0.3.0 (horizon-mods#1058): la fusión de la API de mods de
+Horizon (horizon#16941, 2026-11-16) retiró el `.hnmod` y los launchers ≥ 0.2.70 no lo cargan.
+Lo de arriba describe el formato antiguo; esto es lo que cambió:
+
+- **Proyecto plano** `arsenal_core/`: `horizon-mod.toml` (con `[native]` game/horizon/mixins y la
+  dependencia de `arsenal`), `Cargo.toml` (sólo `horizon-mod-api`, en `.horizon/sdk/`) y `src/`.
+- **API**: `#[mod_api::horizon_mod]`, `ServerHost`/`ClientHost`, handles (`PlayerRef`, `EntityRef`,
+  `LevelRef`). La munición se escribe con `ItemPlace::PlayerSlot` en el `inventory_tick` de un
+  `ItemPart` por arma (`GunPart`, que también responde `use_duration`/`use_animation`).
+- **Red**: payloads con tipo (`#[derive(PayloadCodec)]`, `net.rs`), opcionales, en vez de
+  `net_from_client`/`net_from_server` con bytes.
+- **Tecla R**: `register_key_mapping` + `consume_click` (sale en Controles).
+- **Pose del arma**: el hook `render_hand` trae la pose (`HandRender`), ya no hay
+  `render_hand_pose`. El mod guarda la pose en `rig::main_hand_pose` para `fp_arms`.
+- **Tercera persona**: sin mezcla. `get_arm_pose` devuelve `Bow` (dos manos hacia la vista) y,
+  recargando, `CrossbowCharge`. Se pierde la pose propia de recarga de `tp_arms` (anim::setup ya
+  no admite mezclas: está en `horizon-client-lib`, por debajo del crate del juego).
+- **Primera persona**: `fp_arms` sigue siendo una mezcla HEAD en `item_activation_geometry`
+  (ahora `[[native.mixin]]`, sin `use`, rutas completas y llamando a `arsenal_core::rig`).
+  `rig` ya no es un `[[native.module]]` dentro del juego: el crate del mod no puede llamar a un
+  módulo de soporte, así que el estado compartido vive en el crate y la mezcla lo lee.
+- **Textos**: la barra de acción y la tecla usan claves de idioma del mod de contenido.
+
+Falta: fijar `[native] horizon` a la próxima Nightly con SDK, compilar con el launcher, probar en
+`arsenal-dev` y publicar los dos `.hmod`.

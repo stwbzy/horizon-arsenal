@@ -1,0 +1,5 @@
+/target
+/.horizon
+# Sólo hace falta con dependencias de crates.io (horizon-launcher native-lock); el que deja
+# un cargo check local fija el grafo del SDK y no va en el paquete.
+/Cargo.lock
